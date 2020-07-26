@@ -15,7 +15,7 @@ import tempfile
 import time
 
 import etcd
-from torchelastic.utils.logging import get_logger
+from tensorflow_elastic.utils.logging import get_logger
 
 
 log = get_logger()

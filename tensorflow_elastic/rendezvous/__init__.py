@@ -110,6 +110,6 @@ from .api import (  # noqa: F401
 
 
 try:
-    import torchelastic.rendezvous.static_init  # noqa: F401
+    import tensorflow_elastic.rendezvous.static_init  # noqa: F401
 except ModuleNotFoundError:
     pass

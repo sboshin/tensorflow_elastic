@@ -23,7 +23,7 @@ import etcd
 # pyre-fixme[21]: Could not find name `register_rendezvous_handler` in
 #  `torch.distributed`.
 from torch.distributed import Store, TCPStore, register_rendezvous_handler
-from torchelastic.rendezvous import (
+from tensorflow_elastic.rendezvous import (
     RendezvousClosedException,
     RendezvousHandler,
     RendezvousNonRetryableError,

@@ -15,10 +15,10 @@ from contextlib import closing
 from enum import Enum
 from typing import Any, Callable, Dict, List, Tuple
 
-import torchelastic.rendezvous as rdzv
-import torchelastic.utils.store as store_util
-from torchelastic.metrics import prof, put_metric
-from torchelastic.utils.logging import get_logger
+import tensorflow_elastic.rendezvous as rdzv
+import tensorflow_elastic.utils.store as store_util
+from tensorflow_elastic.metrics import prof, put_metric
+from tensorflow_elastic.utils.logging import get_logger
 
 
 _TERMINAL_STATE_SYNC_ID = "torchelastic/agent/terminal_state"

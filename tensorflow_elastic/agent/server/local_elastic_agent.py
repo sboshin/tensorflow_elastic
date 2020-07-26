@@ -10,7 +10,7 @@ import os
 from typing import Any, Dict
 
 import torch.multiprocessing as mp
-from torchelastic.agent.server.api import (
+from tensorflow_elastic.agent.server.api import (
     MonitorResult,
     SimpleElasticAgent,
     Worker,
@@ -18,8 +18,8 @@ from torchelastic.agent.server.api import (
     WorkerSpec,
     WorkerState,
 )
-from torchelastic.metrics.api import prof
-from torchelastic.utils.logging import get_logger
+from tensorflow_elastic.metrics.api import prof
+from tensorflow_elastic.utils.logging import get_logger
 
 
 log = get_logger()

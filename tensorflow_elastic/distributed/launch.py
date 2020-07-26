@@ -225,13 +225,13 @@ import uuid
 from argparse import REMAINDER, ArgumentParser
 
 #import torch
-import torchelastic.rendezvous.etcd_rendezvous  # noqa: F401
-import torchelastic.rendezvous.parameters as parameters
-from torchelastic import metrics
-from torchelastic.agent.server.api import WorkerSpec
-from torchelastic.agent.server.local_elastic_agent import LocalElasticAgent
-from torchelastic.rendezvous.etcd_server import EtcdServer
-from torchelastic.utils.logging import get_logger
+import tensorflow_elastic.rendezvous.etcd_rendezvous  # noqa: F401
+import tensorflow_elastic.rendezvous.parameters as parameters
+from tensorflow_elastic import metrics
+from tensorflow_elastic.agent.server.api import WorkerSpec
+from tensorflow_elastic.agent.server.local_elastic_agent import LocalElasticAgent
+from tensorflow_elastic.rendezvous.etcd_server import EtcdServer
+from tensorflow_elastic.utils.logging import get_logger
 
 
 log = get_logger()

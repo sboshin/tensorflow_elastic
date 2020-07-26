@@ -16,8 +16,8 @@ deadline.
 
 Usage::
 
-    import torchelastic.timer as timer
-    import torchelastic.agent.server as agent
+    import tensorflow_elastic.timer as timer
+    import tensorflow_elastic.agent.server as agent
 
     def main():
         start_method = "spawn"

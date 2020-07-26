@@ -31,7 +31,7 @@ via :py:meth:`torchelastic.events.record_event` method.
 
 ::
 
-  from torchelastic.events import Event, record_event
+  from tensorflow_elastic.events import Event, record_event
 
   event.configure(event.NullEventHandler()) # uses event_type = "torchelastic"
   event.configure(event.ConsoleEventHandler(), event_type = "foo")
@@ -46,7 +46,7 @@ Another way of using the module is via
 
 ::
 
-  from torchelastic.events import record
+  from tensorflow_elastic.events import record
 
   def execute():
     metadata = {'key':'value'}
@@ -62,7 +62,7 @@ Example
 
 ::
 
-  from torchelastic.events import EventHandler
+  from tensorflow_elastic.events import EventHandler
 
   class StdoutEventHandler(EventHandler):
      def record(self, event):

@@ -45,7 +45,7 @@ The example below measures the latency for the ``calculate()`` function.
 ::
 
   import time
-  import torchelastic.metrics as metrics
+  import tensorflow_elastic.metrics as metrics
 
   # makes all metrics other than the one from "my_module" to go /dev/null
   metrics.configure(metrics.NullMetricsHandler())
@@ -64,7 +64,7 @@ to conveniently and succinctly profile functions
 
   # -- in module examples.foobar --
 
-  import torchelastic.metrics as metrics
+  import tensorflow_elastic.metrics as metrics
 
   metrics.configure(metrics.ConsoleMetricsHandler(), "foobar")
   metrics.configure(metrics.ConsoleMetricsHandler(), "Bar")
@@ -99,7 +99,7 @@ console.
 
 ::
 
-  import torchelastic.metrics as metrics
+  import tensorflow_elastic.metrics as metrics
 
   metrics.configure(metrics.ConsoleMetricHandler(), group = "torchelastic")
   metrics.configure(metrics.ConsoleMetricHandler(), group = "my_app")
@@ -114,7 +114,7 @@ Below is a toy example that prints the metrics to ``stdout``
 
 ::
 
-  import torchelastic.metrics as metrics
+  import tensorflow_elastic.metrics as metrics
 
   class StdoutMetricHandler(metrics.MetricHandler):
      def emit(self, metric_data):
@@ -158,6 +158,6 @@ def initialize_metrics(cfg: Optional[MetricsConfig] = None):
 
 
 try:
-    from torchelastic.metrics.static_init import *  # noqa: F401 F403
+    from tensorflow_elastic.metrics.static_init import *  # noqa: F401 F403
 except ModuleNotFoundError:
     pass
