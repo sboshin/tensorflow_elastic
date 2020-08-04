@@ -44,6 +44,7 @@ class WorkerSpec:
         "max_restarts",
         "monitor_interval",
         "master_port",
+        "address"
     ]
 
     def __init__(
@@ -56,6 +57,7 @@ class WorkerSpec:
         max_restarts: int = 3,
         monitor_interval: float = 30.0,
         master_port=None,
+        address=None,
     ):
         r"""
 
@@ -74,6 +76,7 @@ class WorkerSpec:
         assert local_world_size > 0
         assert max_restarts >= 0
         assert monitor_interval > 0
+        assert address is not None
 
         # Note: role is not used for data parallel, every worker has the same role
         # wiring it in to handle more elaborate situations later
@@ -85,6 +88,7 @@ class WorkerSpec:
         self.max_restarts = max_restarts
         self.monitor_interval = monitor_interval
         self.master_port = master_port
+        self.address = address
 
 
 class Worker:
@@ -243,9 +247,9 @@ class _RoleInstanceInfo:
     different number of workers.
     """
 
-    __slots__ = ["role", "rank", "local_world_size"]
+    __slots__ = ["role", "rank", "local_world_size", "address"]
 
-    def __init__(self, role: str, rank: int, local_world_size: int):
+    def __init__(self, role: str, rank: int, local_world_size: int, address: str):
         r"""
 
         Arguments:
@@ -257,12 +261,14 @@ class _RoleInstanceInfo:
         self.role = role
         self.rank = rank
         self.local_world_size = local_world_size
+        self.address = address
 
     def serialize(self) -> bytes:
         dict_data = {
             "role": self.role,
             "rank": self.rank,
             "local_world_size": self.local_world_size,
+            "address": self.address,
         }
         return json.dumps(dict_data).encode(encoding="UTF-8")
 
@@ -270,7 +276,7 @@ class _RoleInstanceInfo:
     def deserialize(data: bytes):
         dict_data = json.loads(data.decode(encoding="UTF-8"))
         return _RoleInstanceInfo(
-            dict_data["role"], dict_data["rank"], dict_data["local_world_size"]
+            dict_data["role"], dict_data["rank"], dict_data["local_world_size"], dict_data["address"]
         )
 
     @staticmethod
@@ -454,6 +460,7 @@ class SimpleElasticAgent(ElasticAgent):
         self._remaining_restarts = self._worker_group.spec.max_restarts
         self._store = None
         self._exit_barrier_timeout = exit_barrier_timeout
+        self.cluster_spec = {"cluster":{"worker":[]}, "task":{"index":None, "type":"worker"}}
 
     # pyre-fixme[14]: `get_worker_group` overrides method defined in `ElasticAgent`
     #  inconsistently.
@@ -606,6 +613,12 @@ class SimpleElasticAgent(ElasticAgent):
         role_world_size, role_ranks = self._get_ranks(
             role_infos, role_pos, role_start_idx, role_end_idx + 1
         )
+
+        self.cluster_spec["cluster"]["worker"] = [""]*group_world_size
+        for role_info in role_infos:
+          self.cluster_spec["cluster"]["worker"][role_info.rank] = role_info.address
+        self.cluster_spec["task"]["index"] = group_rank
+        
         workers = []
         for ind in range(spec.local_world_size):
             worker = Worker(
@@ -622,7 +635,7 @@ class SimpleElasticAgent(ElasticAgent):
         self, store, group_rank: int, group_world_size: int, spec: WorkerSpec
     ) -> List:
         agent_role_info = _RoleInstanceInfo(
-            spec.role, group_rank, spec.local_world_size
+            spec.role, group_rank, spec.local_world_size, spec.address
         )
         key_prefix = "torchelastic/role_info"
         agent_config_enc = agent_role_info.serialize()
@@ -662,7 +675,6 @@ class SimpleElasticAgent(ElasticAgent):
         for local_rank, id in worker_ids.items():
             worker = worker_group.workers[local_rank]
             worker.id = id
-
         worker_group.state = WorkerState.HEALTHY
 
     @prof

@@ -7,9 +7,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+import json
 from typing import Any, Dict
 
-import torch.multiprocessing as mp
+#import torch.multiprocessing as mp
 from tensorflow_elastic.agent.server.api import (
     MonitorResult,
     SimpleElasticAgent,
@@ -18,6 +19,7 @@ from tensorflow_elastic.agent.server.api import (
     WorkerSpec,
     WorkerState,
 )
+import multiprocessing as mp
 from tensorflow_elastic.metrics.api import prof
 from tensorflow_elastic.utils.logging import get_logger
 
@@ -45,6 +47,7 @@ class _DistInfo:
         "restart_count",
         "max_restarts",
         "run_id",
+        "cluster_spec",
     ]
 
     def __init__(
@@ -60,6 +63,7 @@ class _DistInfo:
         restart_count: int,
         max_restarts: int,
         run_id: str,
+        cluster_spec: str,
     ):
         self.rank = rank
         self.group_rank = group_rank
@@ -72,6 +76,7 @@ class _DistInfo:
         self.restart_count = restart_count
         self.max_restarts = max_restarts
         self.run_id = run_id
+        self.cluster_spec = cluster_spec
 
 
 def _wrap(local_rank, ret_vals, dist_infos, fn, args):
@@ -79,6 +84,7 @@ def _wrap(local_rank, ret_vals, dist_infos, fn, args):
 
     try:
         faulthandler.enable(all_threads=True)
+        pass
     except Exception as e:
         log.warn(
             "Unable to enable fault handler. Failure signals on worker process will not dump tracebacks",
@@ -98,8 +104,33 @@ def _wrap(local_rank, ret_vals, dist_infos, fn, args):
     os.environ["TORCHELASTIC_RESTART_COUNT"] = str(info.restart_count)
     os.environ["TORCHELASTIC_MAX_RESTARTS"] = str(info.max_restarts)
     os.environ["TORCHELASTIC_RUN_ID"] = info.run_id
+    #We are faking the cluster at this point
+    print(dist_infos[local_rank].cluster_spec)
+    
+    tf_config = dist_infos[local_rank].cluster_spec
+    os.environ["TF_CONFIG"] = json.dumps(tf_config)
     ret = fn(*args)
-    ret_vals[info.rank] = ret
+    ret_vals[info.rank] = ret 
+
+
+class ProcessContext(object):
+
+  def __init__(self, procs):
+    self.processes = procs
+    
+  def pids(self):
+    return [proc.pid for proc in self.processes]
+
+  def join(self, timeout=-1):
+    exit_codes = {proc.pid:proc.exitcode for proc in self.processes}
+    for pid in exit_codes:
+      code = exit_codes[pid]
+      if code is not None and code is not 0:
+        raise ChildProcessError(f"Process {pid} Exited with code {code}")
+      elif code is None:
+        return False
+    return True
+
 
 
 class LocalElasticAgent(SimpleElasticAgent):
@@ -152,7 +183,7 @@ class LocalElasticAgent(SimpleElasticAgent):
         super().__init__(spec, exit_barrier_timeout)
         self._start_method = start_method
         # pyre-fixme[8]: Attribute has type `ProcessContext`; used as `None`.
-        self._process_context: mp.ProcessContext = None
+        self._process_context: ProcessContext = None
         # a map that holds return values for each worker fn
         # ret_val[0] holds the return value for worker_0 (global rank 0)
         self._manager = mp.get_context(start_method).Manager()
@@ -163,6 +194,7 @@ class LocalElasticAgent(SimpleElasticAgent):
         for proc in self._process_context.processes:
             if proc.is_alive():
                 proc.terminate()
+                #proc.kill()
             proc.join()
 
     @prof
@@ -187,17 +219,20 @@ class LocalElasticAgent(SimpleElasticAgent):
                 restart_count,
                 spec.max_restarts,
                 spec.rdzv_handler.get_run_id(),
+                self.cluster_spec,
             )
 
         self._ret_vals.clear()
-        self._process_context = mp.start_processes(
-            fn=_wrap,
-            args=(self._ret_vals, dist_infos, spec.fn, spec.args),
-            nprocs=spec.local_world_size,
-            join=False,
-            daemon=False,
-            start_method=self._start_method,
+        proc = mp.Process(
+            target=_wrap,
+            args=(0, self._ret_vals, dist_infos, spec.fn, spec.args),
+            #nprocs=spec.local_world_size,
+            #join=False,
+            #daemon=False,
+            #start_method=self._start_method,
         )
+        proc.start()
+        self._process_context = ProcessContext([proc])
 
         return {
             local_rank: pid

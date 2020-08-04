@@ -6,5 +6,6 @@ sh_binary(
         "MANIFEST.in",
         "setup.py",
         "//tensorflow_elastic:elastic_mwms",
+        "requirements.txt",
     ],
 )

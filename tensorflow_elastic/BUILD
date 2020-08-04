@@ -38,10 +38,10 @@ py_library(
 
 
 py_test(
-    name = "elastic_collective_all_reduce_strategy_test",
+    name = "cluster_resolver_test",
     srcs = [
-        "python/distribute/elastic_collective_all_reduce_strategy_test.py",
-    ],
+        "tests/cluster_resolver_test.py",
+    ] + glob(["tests/bin/*.py"]),
     deps = [
         "elastic_mwms",
     ],

@@ -222,6 +222,7 @@ import signal
 import subprocess
 import sys
 import uuid
+import socket
 from argparse import REMAINDER, ArgumentParser
 
 #import torch
@@ -328,6 +329,13 @@ def parse_args(args):
         "it directly. Useful when the script is not a Python script.",
     )
 
+    parser.add_argument(
+        "--address",
+        default="",
+        help="Local address and port eg: localhost:5000, if nothing is specified it will assign localhost + unused port"
+        "If only port specified 5000, socket name + port used",
+    )
+
     # positional
     parser.add_argument(
         "training_script",
@@ -389,12 +397,15 @@ def wrapper_fn(omp_num_threads, cmd):
     # due to some exception or membership change event we want the script
     # to also get killed. If we do not register this exit handler
     # the script process will get re-parented to the parent of this function
-    # (agent process) and we will end up with multiple copies of the script
+    # (agent process) and we will end up with multiple copies of the scriptz
     # this should all go away with D20613415
     def kill_script_pid(signum, frame):
         process.terminate()
 
     signal.signal(signal.SIGTERM, kill_script_pid)
+    #signal.signal(signal.SIGKILL, kill_script_pid)
+    signal.signal(signal.SIGINT, kill_script_pid)
+    
 
     process.wait()
     if process.returncode != 0:
@@ -408,10 +419,33 @@ def determine_local_world_size(nproc_per_node: str):
     except ValueError:
         raise ValueError(f"Unsupported nproc_per_node value: {nproc_per_node}")
         
+def PickUnusedPort():
+  s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+  s.bind(('', 0))
+  port = s.getsockname()[1]
+  s.close()
+  return port
 
+def parse_address(arg_address):
+  if(arg_address is ""):
+    #Create an address and port
+    return f"localhost:{PickUnusedPort()}"
+  else:
+    address_split = arg_address.split(":")
+    if(len(address_split) < 2):
+      #Only one thing specified
+      if(address_split[0].isdigit()):
+        #only digits its assumed a port else an ip
+        return f"{socket.getfqdn(socket.gethostname())}:{address_split[0]}"
+      else:
+        return f"{address_split[0]}:{PickUnusedPort()}"
+    else:
+      return arg_address
+      
 
 def main(args=None):
     # If ``args`` not passed, defaults to ``sys.argv[:1]``
+    print(args)
     args = parse_args(args)
 
     min_nodes, max_nodes = parse_min_max_nnodes(args.nnodes)
@@ -473,6 +507,8 @@ def main(args=None):
 
     rdzv_handler = parameters.get_rendezvous(rdzv_parameters)
 
+    address = parse_address(args.address)
+
     try:
         spec = WorkerSpec(
             role="default",
@@ -482,6 +518,7 @@ def main(args=None):
             rdzv_handler=rdzv_handler,
             max_restarts=args.max_restarts,
             monitor_interval=args.monitor_interval,
+            address=address,
         )
         metrics.initialize_metrics()
         elastic_agent = LocalElasticAgent(spec, start_method=args.start_method)

@@ -27,6 +27,12 @@ __version__ = '0.0.1'
 REQUIRED_PACKAGES = [
     'tensorflow >= 2.1.0',
 ]
+
+with open("requirements.txt") as f:
+    reqs = f.read()
+
+REQUIRED_PACKAGES += reqs.strip().split("\n")
+
 project_name = 'tensorflow_elastic'
 
 
