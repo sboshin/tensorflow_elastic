@@ -15,7 +15,7 @@ from contextlib import closing
 from enum import Enum
 from typing import Any, Callable, Dict, List, Tuple
 
-import tensorflow_elastic.rendezvous as rdzv
+import tensorflow_elastic.rendezvous.orchestrator_api as rdzv
 import tensorflow_elastic.utils.store as store_util
 from tensorflow_elastic.metrics import prof, put_metric
 from tensorflow_elastic.utils.logging import get_logger
@@ -53,7 +53,7 @@ class WorkerSpec:
         local_world_size: int,
         fn: Callable,
         args: Tuple,
-        rdzv_handler: rdzv.RendezvousHandler,
+        rdzv_handler: rdzv.TFEOrchestratorHandler,
         max_restarts: int = 3,
         monitor_interval: float = 30.0,
         master_port=None,
@@ -460,7 +460,7 @@ class SimpleElasticAgent(ElasticAgent):
         self._remaining_restarts = self._worker_group.spec.max_restarts
         self._store = None
         self._exit_barrier_timeout = exit_barrier_timeout
-        self.cluster_spec = {"cluster":{"worker":[]}, "task":{"index":None, "type":"worker"}}
+        self.reset = False
 
     # pyre-fixme[14]: `get_worker_group` overrides method defined in `ElasticAgent`
     #  inconsistently.
@@ -523,34 +523,20 @@ class SimpleElasticAgent(ElasticAgent):
 
         spec = worker_group.spec
 
-        store, group_rank, group_world_size = spec.rdzv_handler.next_rendezvous()
-        self._store = store
-
-        workers = self._assign_worker_ranks(store, group_rank, group_world_size, spec)
-        worker_group.workers = workers
-        worker_group.store = store
-        worker_group.group_rank = group_rank
-        worker_group.group_world_size = group_world_size
-
-        if group_rank == 0:
-            self._set_master_addr_port(store, spec.master_port)
-        master_addr, master_port = self._get_master_addr_port(store)
+        self.cluster_spec = spec.rdzv_handler.GetClusterSpec(spec.address, self.reset)
+        global_rank = self.cluster_spec["cluster"]["worker"].index(spec.address)
+        self.cluster_spec["task"]["index"] = global_rank
+        worker_group.group_rank = global_rank
+        
         restart_count = spec.max_restarts - self._remaining_restarts
         workers_info = {
-            "local_ranks": [worker.local_rank for worker in workers],
-            "global_ranks": [worker.global_rank for worker in workers],
-            "role_ranks": [worker.role_rank for worker in workers],
-            "world_size": workers[0].world_size,
-            "role_world_size": workers[0].role_world_size,
+            "global_ranks": self.cluster_spec["cluster"]["worker"],
+            "world_size": len(self.cluster_spec["cluster"]["worker"]),
         }
         log.info(
             f"[{spec.role}] Rendezvous complete for workers.\n"
             f"Result:\n"
             f"\trestart_count={restart_count}\n"
-            f"\tgroup_rank={group_rank}\n"
-            f"\tgroup_world_size={group_world_size}\n"
-            f"\tmaster_addr={master_addr}\n"
-            f"\tmaster_port={master_port}\n"
             f"\tworkers={workers_info}\n"
         )
 
@@ -573,80 +559,6 @@ class SimpleElasticAgent(ElasticAgent):
             total_sum,
             list(range(prefix_sum, prefix_sum + role_infos[role_idx].local_world_size)),
         )
-
-    @prof
-    def _assign_worker_ranks(
-        self, store, group_rank: int, group_world_size: int, spec: WorkerSpec
-    ) -> List[Worker]:
-        """
-        Determines proper ranks for worker processes. The rank assignment
-        is done according to the following algorithm:
-
-        1. Each agent writes its configuration(group_rank, group_world_size
-           , num_workers) to the common store.
-        2. Each agent retrieves configuration for all agents
-           and performs two level sort using role and rank.
-        3. Determine the global rank: the global rank of the workers for the current
-           agent is the offset of the infos array up to group_rank of the agent.
-           The offset is computed as a sum of local_world_size of all agents that
-           have rank less than the group_rank. The workers would have the ranks:
-           [offset, offset+local_world_size)
-        4. Determine the role rank: The role rank is determined using the algorithms
-           in the point 3 with the exception that the offset is done from the first
-           agent that has the same role as current one and has the minimum group rank.
-        """
-
-        role_infos = self._share_and_gather(store, group_rank, group_world_size, spec)
-        my_role_info = role_infos[group_rank]
-        worker_world_size, worker_global_ranks = self._get_ranks(role_infos, group_rank)
-        role_infos = sorted(
-            role_infos, key=functools.cmp_to_key(_RoleInstanceInfo.compare)
-        )
-        role_start_idx, role_end_idx = _RoleInstanceInfo.find_role_boundaries(
-            role_infos, my_role_info.role
-        )
-        role_pos = next(
-            idx
-            for idx, role_info in enumerate(role_infos)
-            if _RoleInstanceInfo.compare(role_info, my_role_info) == 0
-        )
-        role_world_size, role_ranks = self._get_ranks(
-            role_infos, role_pos, role_start_idx, role_end_idx + 1
-        )
-
-        self.cluster_spec["cluster"]["worker"] = [""]*group_world_size
-        for role_info in role_infos:
-          self.cluster_spec["cluster"]["worker"][role_info.rank] = role_info.address
-        self.cluster_spec["task"]["index"] = group_rank
-        
-        workers = []
-        for ind in range(spec.local_world_size):
-            worker = Worker(
-                local_rank=ind,
-                global_rank=worker_global_ranks[ind],
-                role_rank=role_ranks[ind],
-                world_size=worker_world_size,
-                role_world_size=role_world_size,
-            )
-            workers.append(worker)
-        return workers
-
-    def _share_and_gather(
-        self, store, group_rank: int, group_world_size: int, spec: WorkerSpec
-    ) -> List:
-        agent_role_info = _RoleInstanceInfo(
-            spec.role, group_rank, spec.local_world_size, spec.address
-        )
-        key_prefix = "torchelastic/role_info"
-        agent_config_enc = agent_role_info.serialize()
-        role_infos_bytes = store_util.synchronize(
-            store, agent_config_enc, group_rank, group_world_size, key_prefix
-        )
-        role_infos = [
-            _RoleInstanceInfo.deserialize(role_info_bytes)
-            for role_info_bytes in role_infos_bytes
-        ]
-        return role_infos
 
     @prof
     def _initialize_workers(self, worker_group: WorkerGroup) -> None:
@@ -686,8 +598,10 @@ class SimpleElasticAgent(ElasticAgent):
         role = worker_group.spec.role
         log.info(f"[{role}] Stopping worker group")
         self._stop_workers(worker_group)
+        self.reset = True
         worker_group.state = WorkerState.STOPPED
         self._initialize_workers(worker_group)
+        self.reset = False
 
     @prof
     def run(self, role: str = DEFAULT_ROLE) -> Dict[int, Any]:
@@ -788,7 +702,7 @@ class SimpleElasticAgent(ElasticAgent):
                     )
             elif state == WorkerState.HEALTHY:
                 # membership changes do not count as retries
-                num_nodes_waiting = rdzv_handler.num_nodes_waiting()
+                num_nodes_waiting = rdzv_handler.GetWaitingNodes()
                 group_rank = self._worker_group.group_rank
                 if num_nodes_waiting > 0:
                     log.info(
@@ -813,13 +727,8 @@ class SimpleElasticAgent(ElasticAgent):
         )
         start = time.time()
         try:
-            store_util.barrier(
-                self._store,
-                self._worker_group.group_rank,
-                self._worker_group.group_world_size,
-                key_prefix=_TERMINAL_STATE_SYNC_ID,
-                barrier_timeout=self._exit_barrier_timeout,
-            )
+            spec = self._worker_group.spec
+            spec.rdzv_handler.Barrier(spec.address, "fake", -1)
             log.info(
                 f"Done waiting for other agents. Elapsed: {time.time() - start} seconds"
             )

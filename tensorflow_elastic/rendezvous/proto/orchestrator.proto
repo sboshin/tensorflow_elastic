@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package tfe_orchestrator;
+
+// Interface exported by the server.
+service TFEOrchestrator {
+  rpc GetClusterSpec(WorkerRegistration) returns (ClusterSpec) {}
+
+  rpc GetWaitingNodes(WaitNodesRequest) returns (WaitingNodes) {}
+
+  rpc Synchronize(SyncRequest) returns (SyncResponse) {}
+
+  rpc Barrier(BarrierRequest) returns (BarrierResponse) {}
+
+
+}
+
+message ClusterSpec {
+  // Full cluster spec from the total number of workers present
+  string cluster_spec = 1;
+}
+
+message WaitingNodes {
+
+  // Number of nodes that are free and waiting to be used
+  int32 num_waiting_nodes = 1;
+}
+
+message WaitNodesRequest {
+
+}
+
+message WorkerRegistration {
+  string address = 1;
+  int32 min_nodes = 2;
+  int32 max_nodes = 3;
+  bool reset = 4;
+}
+
+message SyncRequest {
+  string address = 1;
+  string tag = 2;
+  string data =3;
+  int32 timeout=4;
+}
+
+message SyncResponse {
+  bool success =1;
+  string data = 2;
+  string error_msg = 3;
+}
+
+message BarrierRequest {
+  string address =1;
+  string tag = 2;
+  int32 timeout =3;
+}
+
+message BarrierResponse {
+  bool success = 1;
+  string error_msg = 2;
+}

@@ -33,11 +33,14 @@ import subprocess
 import time
 from tensorflow.python.platform import test
 from tensorflow_elastic.distributed.launch import main
+from tensorflow_elastic.rendezvous.orchestrator_server import serve
+
+SERVER_ADDRESS = 'localhost:50051'
 
 def path(script):
     return os.path.join(os.path.dirname(__file__), script)
 
-def kill_proc_tree(pid, sig=signal.SIGKILL, include_parent=True,
+def kill_proc_tree(pid, sig=signal.SIGTERM, include_parent=True,
                    timeout=None, on_terminate=None):
     """Kill a process tree (including grandchildren) with signal
     "sig" and return a (gone, still_alive) tuple.
@@ -70,25 +73,15 @@ class ElasticParams(object):
 
 class ElasticTensorflowTFConfigTest(test.TestCase):
   def setUp(self):
-    # Setup the etcd server
-    self._etcd_endpoint = "localhost:5379"
-    etcd_server_cmd = "etcd --enable-v2 --listen-client-urls http://%s,http://127.0.0.1:4001 --advertise-client-urls http://%s"%(self._etcd_endpoint,self._etcd_endpoint)
-    my_env = os.environ.copy()
-    etcd_data_dir = "/tmp/etcd_data_dir/" 
-    if(os.path.isdir(etcd_data_dir)):
-      shutil.rmtree(etcd_data_dir)
-      os.mkdir(etcd_data_dir)
-
-    my_env["ETCD_DATA_DIR"] = etcd_data_dir
-    self._etcd_server = subprocess.Popen(etcd_server_cmd.split(" "), env=my_env)
-    etcd_clear = "ETCDCTL_API=3 etcdctl del "" --from-key=true"
-    self._etcd_clear_cmd = subprocess.check_output(etcd_clear.split(" "), shell=True)
+    # Setup the grpc server
+    self._t = Process(target=serve)
+    self._t.start()
+    time.sleep(2)
     self._procs = []
     self._exclude_procs = []
-    time.sleep(3)
   
   def tearDown(self):
-    self._etcd_server.terminate()
+    self._t.terminate()
   
   def join_all(self):
     for ii, proc in enumerate(self._procs):
@@ -104,7 +97,7 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
             f"--nnodes={params.nnodes}",
             f"--nproc_per_node={params.nproc_per_node}",
             f"--rdzv_backend=etcd",
-            f"--rdzv_endpoint={self._etcd_endpoint}",
+            f"--rdzv_endpoint={SERVER_ADDRESS}",
             f"--rdzv_id={params.run_id}",
             f"--monitor_interval=1",
             f"--start_method=fork",

@@ -233,6 +233,8 @@ from tensorflow_elastic.agent.server.api import WorkerSpec
 from tensorflow_elastic.agent.server.local_elastic_agent import LocalElasticAgent
 from tensorflow_elastic.rendezvous.etcd_server import EtcdServer
 from tensorflow_elastic.utils.logging import get_logger
+from tensorflow_elastic.rendezvous import orchestrator_server
+from tensorflow_elastic.rendezvous import orchestrator_api
 
 
 log = get_logger()
@@ -496,16 +498,7 @@ def main(args=None):
     cmd.append(args.training_script)
     cmd.extend(args.training_script_args)
 
-    rdzv_parameters = parameters.RendezvousParameters(
-        args.rdzv_backend,
-        args.rdzv_endpoint,
-        args.rdzv_id,
-        min_nodes,
-        max_nodes,
-        args.rdzv_conf,
-    )
-
-    rdzv_handler = parameters.get_rendezvous(rdzv_parameters)
+    rdzv_handler = orchestrator_api.TFEOrchestratorHandler(args.rdzv_endpoint, min_nodes, max_nodes)
 
     address = parse_address(args.address)
 

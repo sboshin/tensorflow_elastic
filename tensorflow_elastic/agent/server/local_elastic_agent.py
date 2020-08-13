@@ -36,47 +36,23 @@ class _DistInfo:
     """
 
     __slots__ = [
-        "rank",
-        "group_rank",
-        "role_rank",
-        "local_world_size",
-        "role_world_size",
-        "world_size",
-        "master_addr",
-        "master_port",
         "restart_count",
         "max_restarts",
-        "run_id",
         "cluster_spec",
+        "group_rank"
     ]
 
     def __init__(
         self,
-        rank: int,
-        group_rank: int,
-        role_rank: int,
-        local_world_size: int,
-        role_world_size: int,
-        world_size: int,
-        master_addr: str,
-        master_port: int,
         restart_count: int,
         max_restarts: int,
-        run_id: str,
         cluster_spec: str,
+        group_rank: int,
     ):
-        self.rank = rank
-        self.group_rank = group_rank
-        self.local_world_size = local_world_size
-        self.role_rank = role_rank
-        self.world_size = world_size
-        self.role_world_size = role_world_size
-        self.master_addr = master_addr
-        self.master_port = master_port
         self.restart_count = restart_count
         self.max_restarts = max_restarts
-        self.run_id = run_id
         self.cluster_spec = cluster_spec
+        self.group_rank = group_rank
 
 
 def _wrap(local_rank, ret_vals, dist_infos, fn, args):
@@ -92,25 +68,16 @@ def _wrap(local_rank, ret_vals, dist_infos, fn, args):
         )
 
     info = dist_infos[local_rank]
-    os.environ["LOCAL_RANK"] = str(local_rank)
-    os.environ["RANK"] = str(info.rank)
-    os.environ["GROUP_RANK"] = str(info.group_rank)
-    os.environ["ROLE_RANK"] = str(info.role_rank)
-    os.environ["LOCAL_WORLD_SIZE"] = str(info.local_world_size)
-    os.environ["WORLD_SIZE"] = str(info.world_size)
-    os.environ["ROLE_WORLD_SIZE"] = str(info.role_world_size)
-    os.environ["MASTER_ADDR"] = info.master_addr
-    os.environ["MASTER_PORT"] = str(info.master_port)
     os.environ["TORCHELASTIC_RESTART_COUNT"] = str(info.restart_count)
     os.environ["TORCHELASTIC_MAX_RESTARTS"] = str(info.max_restarts)
-    os.environ["TORCHELASTIC_RUN_ID"] = info.run_id
+    os.environ["RANK"] = str(info.group_rank)
     #We are faking the cluster at this point
     print(dist_infos[local_rank].cluster_spec)
     
     tf_config = dist_infos[local_rank].cluster_spec
     os.environ["TF_CONFIG"] = json.dumps(tf_config)
     ret = fn(*args)
-    ret_vals[info.rank] = ret 
+    ret_vals[info.group_rank] = ret 
 
 
 class ProcessContext(object):
@@ -200,26 +167,16 @@ class LocalElasticAgent(SimpleElasticAgent):
     @prof
     def _start_workers(self, worker_group: WorkerGroup) -> Dict[int, Any]:
         spec = worker_group.spec
-        store = worker_group.store
-        master_addr, master_port = super()._get_master_addr_port(store)
         restart_count = spec.max_restarts - self._remaining_restarts
 
         dist_infos: Dict[int, _DistInfo] = {}
         for worker in worker_group.workers:
             local_rank = worker.local_rank
             dist_infos[local_rank] = _DistInfo(
-                worker.global_rank,
-                worker_group.group_rank,
-                worker.role_rank,
-                worker_group.spec.local_world_size,
-                worker.role_world_size,
-                worker.world_size,
-                master_addr,
-                master_port,
                 restart_count,
                 spec.max_restarts,
-                spec.rdzv_handler.get_run_id(),
                 self.cluster_spec,
+                worker_group.group_rank,
             )
 
         self._ret_vals.clear()
