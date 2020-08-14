@@ -16,7 +16,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Tuple
 
 import tensorflow_elastic.rendezvous.orchestrator_api as rdzv
-import tensorflow_elastic.utils.store as store_util
 from tensorflow_elastic.metrics import prof, put_metric
 from tensorflow_elastic.utils.logging import get_logger
 
@@ -37,8 +36,6 @@ class WorkerSpec:
 
     __slots__ = [
         "role",
-        "local_world_size",
-        "fn",
         "args",
         "rdzv_handler",
         "max_restarts",
@@ -50,9 +47,7 @@ class WorkerSpec:
     def __init__(
         self,
         role: str,
-        local_world_size: int,
-        fn: Callable,
-        args: Tuple,
+        args: str,
         rdzv_handler: rdzv.TFEOrchestratorHandler,
         max_restarts: int = 3,
         monitor_interval: float = 30.0,
@@ -73,7 +68,6 @@ class WorkerSpec:
                                if not specified then will chose a random free port
         """
 
-        assert local_world_size > 0
         assert max_restarts >= 0
         assert monitor_interval > 0
         assert address is not None
@@ -81,8 +75,6 @@ class WorkerSpec:
         # Note: role is not used for data parallel, every worker has the same role
         # wiring it in to handle more elaborate situations later
         self.role = role
-        self.local_world_size = local_world_size
-        self.fn = fn
         self.args = args
         self.rdzv_handler = rdzv_handler
         self.max_restarts = max_restarts
@@ -229,7 +221,7 @@ class WorkerGroup:
 
     def __init__(self, spec: WorkerSpec):
         self.spec = spec
-        self.workers = [Worker(local_rank=i) for i in range(self.spec.local_world_size)]
+        self.workers = [Worker(local_rank=0)]
 
         # assigned after rdzv
         self.store = None
@@ -523,7 +515,7 @@ class SimpleElasticAgent(ElasticAgent):
 
         spec = worker_group.spec
 
-        self.cluster_spec = spec.rdzv_handler.GetClusterSpec(spec.address, self.reset)
+        self.cluster_spec = spec.rdzv_handler.GetClusterSpec(spec.address, False)
         global_rank = self.cluster_spec["cluster"]["worker"].index(spec.address)
         self.cluster_spec["task"]["index"] = global_rank
         worker_group.group_rank = global_rank
@@ -660,7 +652,7 @@ class SimpleElasticAgent(ElasticAgent):
         spec = self._worker_group.spec
         role = spec.role
 
-        log.info(f"[{role}] starting workers for function: {spec.fn.__name__}")
+        log.info(f"[{role}] starting workers")
 
         self._initialize_workers(self._worker_group)
         monitor_interval = spec.monitor_interval
@@ -701,10 +693,19 @@ class SimpleElasticAgent(ElasticAgent):
                         monitor_result.exceptions,
                     )
             elif state == WorkerState.HEALTHY:
+                # healthy workers will ping server as a TTL replacement
+                # Return if any remote agents have failed Ping
                 # membership changes do not count as retries
-                num_nodes_waiting = rdzv_handler.GetWaitingNodes()
+                num_nodes_waiting = rdzv_handler.GetWaitingNodes(spec.address)
                 group_rank = self._worker_group.group_rank
                 if num_nodes_waiting > 0:
+                    log.info(
+                        f"[{role}] Detected {num_nodes_waiting} "
+                        f"new nodes from group_rank={group_rank}; "
+                        f"will restart worker group"
+                    )
+                    self._restart_workers(self._worker_group)
+                if num_nodes_waiting < 0:
                     log.info(
                         f"[{role}] Detected {num_nodes_waiting} "
                         f"new nodes from group_rank={group_rank}; "

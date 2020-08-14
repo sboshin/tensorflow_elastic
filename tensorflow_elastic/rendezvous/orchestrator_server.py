@@ -10,6 +10,7 @@ import tensorflow_elastic.orchestrator_pb2 as orchestrator_pb2
 import tensorflow_elastic.orchestrator_pb2_grpc as orchestrator_pb2_grpc
 import threading
 NODE_GATHER_TIMEOUT = 30
+HEALTH_CHECK_TIMEOUT = 10
 
 class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
@@ -20,7 +21,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
     self._current_id = 0
     self._next_id = 0
-    self._workers = {0:[]}
+    self._workers = {0:{}}
     self._params = None
     self._lock = threading.Lock()
     self._gathering = False
@@ -41,7 +42,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     
   def _create_cluster_spec(self):
     cluser_spec_template = {"cluster":{"worker":[]}, "task":{"index": None, "type":"worker"}}
-    cluser_spec_template["cluster"]["worker"] = self._workers[self._current_id]
+    cluser_spec_template["cluster"]["worker"] = list(self._workers[self._current_id].keys())
     ret = json.dumps(cluser_spec_template)
     logging.info(ret)
     logging.info(self._workers)
@@ -92,7 +93,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       if(self._current_id not in self._workers):
         #self._update_state(reset=True) #Reset once we get a new id
         self._state = "gather"
-        self._workers[self._current_id] = []
+        self._workers[self._current_id] = {}
         #Reset End time
         self._end_gathering = time.time() + NODE_GATHER_TIMEOUT
       self._wait_lock.release()
@@ -140,7 +141,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     #Currently we can't handle excess nodes
     self._lock.acquire()
     logging.warning(f"{threading.get_ident()} Acquired lock + {request}")
-    self._workers[self._current_id].append(request.address)
+    self._workers[self._current_id][request.address] = time.time()
     self._lock.release()
     logging.warning("Released lock")
 
@@ -162,6 +163,8 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
         break
     else:
       logging.info("Max waiting time reached will continue")
+      #Because the gather time is longer than Health check, prior to leaving, lets reset the health check
+      self._workers[self._current_id][request.address] = time.time()
 
     self._update_state(done=True)
     #Create cluster spec from workers
@@ -170,7 +173,31 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
 
   def GetWaitingNodes(self, request, context):
-    return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes)
+    # We will use this as a health check.
+    # Healthy nodes should be checking this regularly. If a node fails to check this in HEALTH_CHECK_TIMEOUT
+    # We assume this node is dead
+    
+    #First verify we are in the list of workers
+    #logging.info(f"Getting waiting nodes, {request.address} : {self._workers[self._current_id]}")
+    address = request.address
+    if(address not in self._workers[self._current_id]):
+      #Return an error message if we fail
+      logging.info("Returning failed")
+      return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes, error_msg=f"{address} not in current worker {self._workers[self._current_id]}") 
+    
+    self._workers[self._current_id][address] = time.time()
+
+    if(self._waiting_nodes > 0):
+      return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes, error_msg="")
+    
+    #If we are already waiting for nodes (being added) we can return
+    #now check for Health check failures
+
+    fail = [self._workers[self._current_id][x] + HEALTH_CHECK_TIMEOUT > time.time() for x in self._workers[self._current_id]]
+    num_failed = 0-fail.count(False)
+    #logging.info(f"Number of failed {num_failed}, Workers {self._workers[self._current_id]}")
+
+    return orchestrator_pb2.WaitingNodes(num_waiting_nodes=num_failed, error_msg="")  
 
 
   def Synchronize(self, request, context):
@@ -235,7 +262,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
         return ret_val(True, "")
       elif(bar_len > len(self._workers[self._current_id])):
         self._start_bar = False
-        raise ValueError(f"{bar_len} num workers synchronizing > {len(self._workers)} ")
+        raise ValueError(f"{bar_len} num workers synchronizing > {len(self._workers[self._current_id])} ")
       else:
         time.sleep(1)
     if(len(self._data_bar) == len(self._workers[self._current_id])):

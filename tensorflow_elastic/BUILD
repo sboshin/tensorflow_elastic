@@ -73,6 +73,7 @@ py_test(
         "elastic_mwms",
     ],
     srcs_version = "PY2AND3",
+    timeout = "long",
 )
 
 py_test(
@@ -85,5 +86,6 @@ py_test(
         ":orchestrator_py_pb2_grpc",
     ],
     srcs_version = "PY2AND3",
+    timeout = "long",
 )
 

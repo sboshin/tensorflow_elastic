@@ -8,9 +8,10 @@
 
 import os
 import json
+import subprocess
+import signal
 from typing import Any, Dict
 
-#import torch.multiprocessing as mp
 from tensorflow_elastic.agent.server.api import (
     MonitorResult,
     SimpleElasticAgent,
@@ -55,31 +56,6 @@ class _DistInfo:
         self.group_rank = group_rank
 
 
-def _wrap(local_rank, ret_vals, dist_infos, fn, args):
-    import faulthandler
-
-    try:
-        faulthandler.enable(all_threads=True)
-        pass
-    except Exception as e:
-        log.warn(
-            "Unable to enable fault handler. Failure signals on worker process will not dump tracebacks",
-            exc_info=e,
-        )
-
-    info = dist_infos[local_rank]
-    os.environ["TORCHELASTIC_RESTART_COUNT"] = str(info.restart_count)
-    os.environ["TORCHELASTIC_MAX_RESTARTS"] = str(info.max_restarts)
-    os.environ["RANK"] = str(info.group_rank)
-    #We are faking the cluster at this point
-    print(dist_infos[local_rank].cluster_spec)
-    
-    tf_config = dist_infos[local_rank].cluster_spec
-    os.environ["TF_CONFIG"] = json.dumps(tf_config)
-    ret = fn(*args)
-    ret_vals[info.group_rank] = ret 
-
-
 class ProcessContext(object):
 
   def __init__(self, procs):
@@ -89,13 +65,14 @@ class ProcessContext(object):
     return [proc.pid for proc in self.processes]
 
   def join(self, timeout=-1):
-    exit_codes = {proc.pid:proc.exitcode for proc in self.processes}
+    exit_codes = {proc.pid:proc.poll() for proc in self.processes}
     for pid in exit_codes:
       code = exit_codes[pid]
       if code is not None and code is not 0:
         raise ChildProcessError(f"Process {pid} Exited with code {code}")
       elif code is None:
         return False
+    self._ret_vals = exit_codes
     return True
 
 
@@ -154,15 +131,15 @@ class LocalElasticAgent(SimpleElasticAgent):
         # a map that holds return values for each worker fn
         # ret_val[0] holds the return value for worker_0 (global rank 0)
         self._manager = mp.get_context(start_method).Manager()
-        self._ret_vals = self._manager.dict()
+        #self._ret_vals = self._manager.dict()
 
     @prof
     def _stop_workers(self, worker_group: WorkerGroup) -> None:
         for proc in self._process_context.processes:
-            if proc.is_alive():
+            if proc.poll() is None:
                 proc.terminate()
                 #proc.kill()
-            proc.join()
+            proc.wait()
 
     @prof
     def _start_workers(self, worker_group: WorkerGroup) -> Dict[int, Any]:
@@ -179,16 +156,30 @@ class LocalElasticAgent(SimpleElasticAgent):
                 worker_group.group_rank,
             )
 
-        self._ret_vals.clear()
-        proc = mp.Process(
-            target=_wrap,
-            args=(0, self._ret_vals, dist_infos, spec.fn, spec.args),
+        #self._ret_vals.clear()
+        
+        #proc = mp.Process(
+        #    target=_wrap,
+        #    args=(0, self._ret_vals, dist_infos, spec.fn, spec.args),
             #nprocs=spec.local_world_size,
             #join=False,
             #daemon=False,
             #start_method=self._start_method,
-        )
-        proc.start()
+        #)
+        #proc.start()
+        env = os.environ
+        env["TORCHELASTIC_RESTART_COUNT"] = str(restart_count)
+        env["TORCHELASTIC_MAX_RESTARTS"] = str(spec.max_restarts)
+        env["RANK"] = str(worker_group.group_rank)
+        env["TF_CONFIG"] = json.dumps(self.cluster_spec)
+        proc = subprocess.Popen(spec.args, env=env)
+
+        def kill_script_pid(signum, frame):
+          print(f"Terminating {frame}", flush=True)
+          proc.terminate()
+        signal.signal(signal.SIGTERM, kill_script_pid)
+        signal.signal(signal.SIGINT, kill_script_pid)
+        
         self._process_context = ProcessContext([proc])
 
         return {
@@ -215,7 +206,7 @@ class LocalElasticAgent(SimpleElasticAgent):
         try:
             if self._process_context.join(timeout=-1):
                 # copy ret_vals since we do not want to return an mp map
-                return MonitorResult(WorkerState.SUCCEEDED, dict(self._ret_vals))
+                return MonitorResult(WorkerState.SUCCEEDED, dict(self._process_context._ret_vals))
             else:
                 return MonitorResult(WorkerState.HEALTHY)
         except Exception as e:

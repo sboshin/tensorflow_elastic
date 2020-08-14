@@ -2,7 +2,33 @@ import os
 import argparse
 import tensorflow as tf
 import time
+import json
 import numpy as np
+from tensorflow.python.keras.distribute.worker_training_state import WorkerTrainingState
+from tensorflow.python.lib.io import file_io
+
+def delete_backup(self):
+  """Delete the backup directories.
+  Delete the backup directories which should not exist after `fit()`
+  successfully finishes.
+  """
+  # pylint: disable=protected-access
+
+  try:
+    for pathname in file_io.get_matching_files(
+        self.write_checkpoint_manager._prefix + '*'):
+      file_io.delete_recursively(pathname)
+  except tf.python.framework.errors_impl.NotFoundError as e:
+    print(e, flush=True)
+  try:
+    for pathname in file_io.get_matching_files(
+        os.path.join(self.write_checkpoint_manager.directory, 'checkpoint')):
+      file_io.delete_recursively(pathname)
+  except tf.python.framework.errors_impl.NotFoundError as e:
+    print(e, flush=True)
+    
+
+WorkerTrainingState.delete_backup = delete_backup
 
 from tensorflow.python.distribute.collective_all_reduce_strategy import CollectiveAllReduceStrategy
 
@@ -51,10 +77,16 @@ def main():
 
     tf_config = os.environ["TF_CONFIG"]
     print("TF_CONFIG env is %s "%(tf_config))
+    tf_config = json.loads(tf_config)
     
     strategy = CollectiveAllReduceStrategy()
     num_workers = strategy.extended._cluster_resolver.cluster_spec().num_tasks("worker")
     per_worker_batch_size = 64
+
+    tmp_dir = f"/tmp/backup{tf_config['task']['index']}"
+    tmp_dir = "/tmp/backup"
+    if(not os.path.isdir(tmp_dir)):
+      os.mkdir(tmp_dir)
 
 
     # Here the batch size scales up by number of workers since 
@@ -70,7 +102,7 @@ def main():
     # Keras' `model.fit()` trains the model with specified number of epochs and
     # number of steps per epoch. Note that the numbers here are for demonstration
     # purposes only and may not sufficiently produce a model with good quality.
-    callbacks = [tf.keras.callbacks.experimental.BackupAndRestore(backup_dir='/tmp/backup')]
+    callbacks = [tf.keras.callbacks.experimental.BackupAndRestore(backup_dir=tmp_dir)]
 
     multi_worker_model.fit(multi_worker_dataset, epochs=30, steps_per_epoch=args.epochs, callbacks=callbacks)
 

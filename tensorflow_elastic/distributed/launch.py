@@ -1,221 +1,5 @@
 #!/usr/bin/env python3
 
-# Copyright (c) Facebook, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
-r"""
-This module provides similar functionality as ``torch.distributed.launch``,
-with the following additional functionalities:
-
-1. Worker failures are handled gracefully by restarting all workers.
-
-2. Worker ``RANK`` and ``WORLD_SIZE`` are assigned automatically.
-
-3. Number of nodes is allowed to change between min and max sizes (elasticity).
-
-**Usage:**
-
-1. Single-node multi-worker (with sidecar etcd server)
-
-::
-    >>> python -m torchelastic.distributed.launch
-        --standalone
-        --nnodes=1
-        --nproc_per_node=$NUM_TRAINERS
-        YOUR_TRAINING_SCRIPT.py (--arg1 ... train script args...)
-
-2. Fault tolerant (fixed sized number of workers, no elasticity).:
-
-::
-
-    >>> python -m torchelastic.distributed.launch
-        --nnodes=$NUM_NODES
-        --nproc_per_node=$NUM_TRAINERS
-        --rdzv_id=$JOB_ID
-        --rdzv_backend=etcd
-        --rdzv_endpoint=$ETCD_HOST:$ETCD_PORT
-        YOUR_TRAINING_SCRIPT.py (--arg1 ... train script args...)
-
-3. Elastic (``min=1``, ``max=4``):
-
-::
-
-    >>> python -m torchelastic.distributed.launch
-        --nnodes=1:4
-        --nproc_per_node=$NUM_TRAINERS
-        --rdzv_id=$JOB_ID
-        --rdzv_backend=etcd
-        --rdzv_endpoint=$ETCD_HOST:$ETCD_PORT
-        YOUR_TRAINING_SCRIPT.py (--arg1 ... train script args...)
-
-**Note on rendezvous backend**:
-
-For multi-node training you need to specify:
-
-1. ``--rdzv_id``: a unique job id (shared by all nodes participating in the job)
-2. ``--rdzv_backend``: an implementation of ``torchelastic.rendevous.RendezvousHandler``
-3. ``--rdzv_endpoint``: ``host:port``-style endpoint where the rdzv backend is running.
-
-Currently only ``etcd`` rdzv backend is supported out of the box.
-To use ``etcd``, setup an etcd server with the ``v2`` api enabled
-(e.g. ``--enable-v2``).
-
-.. warning:: ``EtcdRendezvous`` uses etcd api v2. You MUST enable the v2
-             api on the etcd server. Our tests use etcd v3.4.3.
-
-**Definitions:**
-
-1. ``Node`` - Physical instance or container.
-    Maps to the unit that the job manager works with.
-
-2. ``Worker`` - A worker in the context of distributed training.
-
-3. ``Worker Group`` - Workers that execute the same function (e.g. trainers)
-
-4. ``Local Worker Group`` - Subset of the workers in the
-    worker group running on the same Node
-
-5. ``RANK`` - rank of the worker within a worker group.
-
-6. ``WORLD_SIZE`` - total number of workers in a worker group.
-
-7. ``LOCAL_RANK`` - rank of the worker within a local worker group
-
-8. ``LOCAL_WORLD_SIZE`` - size of the local worker group
-
-9. ``rdzv_id`` - user defined id that uniquely identifies the worker group
-      for a job. This id is used by each node to join as a member of a particular
-      worker group.
-
-9. ``rdzv_backend`` - the backend store of rendezvous (e.g. etcd). This is
-    typically a strongly consistent key-value store.
-
-10. ``rdzv_endpoint`` - rdzv backend server endpoint in ``host:port`` format.
-
-A ``Node`` runs ``LOCAL_WORLD_SIZE`` workers which comprise a ``LocalWorkerGroup``.
-The union of all ``LocalWorkerGroups`` in the nodes in the job comprise the
-``WorkerGroup``.
-
-**Environment Variables:**
-
-The following environment variables are made available to you in your
-script:
-
-1. ``LOCAL_RANK`` -  local rank
-
-2. ``RANK`` -  global rank
-
-3. ``GROUP_RANK`` - rank of the worker group. A number between 0 - ``max_nnodes``.
-        When running a single worker group per node, this is the rank of the node.
-
-4. ``ROLE_RANK`` -  the rank of the worker across all the workers tha have the same
-        role. The role of the worker is specified in the ``WorkerSpec``.
-
-5. ``LOCAL_WORLD_SIZE`` - local world size (e.g. number of workers running locally).
-       Equal to ``--nproc_per_node`` specified on ``torchelastic.distributed.launch``.
-
-6. ``WORLD_SIZE`` - world size (total number of workers in the job).
-
-7. ``ROLE_WORLD_SIZE`` - the total number of workers that was launched with the same
-        role specified in ``WorkerSpec``.
-
-8. ``MASTER_ADDR`` - fqdn of the host that is running worker with rank 0.
-   Used to initialize torch distributed backend.
-
-9. ``MASTER_PORT`` - port on the ``MASTER_ADDR`` that can be used to
-   host the tcp ``c10d`` store.
-
-10. ``TORCHELASTIC_RESTART_COUNT`` - number of worker group restarts so far.
-
-11. ``TORCHELASTIC_MAX_RESTARTS`` - configured max number of restarts.
-
-12. ``TORCHELASTIC_RUN_ID`` - equal to rdzv run_id (e.g. unique job id).
-
-**Deployment:**
-
-1. Start the rdzv backend server and get the endpoint
-   (to be passed as ``--rdzv_endpoint`` to the launcher script)
-
-2. Single-node multi-worker - start the launcher on the host to start
-   the agent process which creates and monitors a local worker group.
-
-3. Multi-node multi-worker - Start the launcher with the same arguments
-   on all the nodes participating in training.
-
-When using a job/cluster manager the entry point command to the multi-node
-job is invoking this launcher.
-
-**Failure Modes:**
-
-1. Worker failure - For a training job with ``n`` workers, if ``k <= n`` workers fail
-   all workers are stopped and restarted up to ``max_restarts``.
-
-2. Agent failure - An agent failure results in local worker group failure,
-   it is up to the job manager to fail the entire job (gang semantics) or attempt
-   to replace the node. Both behaviors are supported by the agent.
-
-3. Node failure - Same as agent failure.
-
-**Membership Changes:**
-
-1. Node departure (scale-down) - agent is notified of the departure,
-   all existing workers are stopped, a new ``Worker Group`` is formed and all
-   workers are started with a new ``RANK`` and ``WORLD_SIZE``.
-
-2. Node arrival (scale-up) - the new node is admitted to the job,
-   all existing workers are stopped, a new ``Worker Group`` is formed and all
-   workers are started with a new ``RANK`` and ``WORLD_SIZE``.
-
-
-**Important Notices:**
-
-1. All the items in the important notices section of ``torch.distributed.launch``
-   apply to this module as well
-
-2. The environment variables necessary to initialize a torch process group
-   are provided to you by this module, no need for you to pass ``RANK`` manually.
-   To initialize a process group in your training script, simply run
-
-::
-
- >>> import torch.distributed as dist
- >>> dist.init_process_group(backend="gloo|nccl")
-
-3. On failures or membership changes ALL surviving workers are killed
-   immediately. Make sure to checkpoint your progress. The frequency of
-   checkpoints should depend on your job's tolerance for lost work.
-
-4. This module only supports homogeneous ``LOCAL_WORLD_SIZE``. That is,
-   it is assumed that all nodes run the same number of local workers (per role).
-
-5. ``RANK`` is NOT stable. Between restarts, the local workers on a node
-   can be assgined a different range of ranks than before. NEVER hard code
-   any assumptions about the stable-ness of ranks or some correlation between
-   ``RANK`` and ``LOCAL_RANK``.
-
-6. When using elasticity (``min_size != max_size``) DO NOT hard code
-   assumptions about ``WORLD_SIZE`` as the world size can change as
-   nodes are allowed to leave and join.
-
-7. It is recommended your script have the following structure
-
-::
-
-  def main():
-    load_checkpoint(checkpoint_path)
-    initialize()
-    train()
-
-  def train():
-    for batch in iter(dataset):
-      train_step(batch)
-
-      if should_checkpoint:
-        save_checkpoint(checkpoint_path)
-"""
 import logging
 import os
 import signal
@@ -223,15 +7,12 @@ import subprocess
 import sys
 import uuid
 import socket
+import multiprocessing as mp
 from argparse import REMAINDER, ArgumentParser
 
-#import torch
-import tensorflow_elastic.rendezvous.etcd_rendezvous  # noqa: F401
-import tensorflow_elastic.rendezvous.parameters as parameters
 from tensorflow_elastic import metrics
 from tensorflow_elastic.agent.server.api import WorkerSpec
 from tensorflow_elastic.agent.server.local_elastic_agent import LocalElasticAgent
-from tensorflow_elastic.rendezvous.etcd_server import EtcdServer
 from tensorflow_elastic.utils.logging import get_logger
 from tensorflow_elastic.rendezvous import orchestrator_server
 from tensorflow_elastic.rendezvous import orchestrator_api
@@ -255,17 +36,7 @@ def parse_args(args):
         default="1:1",
         help="number of nodes or MIN_NODES:MAX_NODES",
     )
-    parser.add_argument(
-        "--nproc_per_node",
-        type=str,
-        default="auto",
-        help="number of workers per node, supported values: [auto, cpu, gpu, int]",
-    )
-
-    # rendezvous related arguments
-    parser.add_argument(
-        "--rdzv_backend", type=str, default="etcd", help="rendezvous backend"
-    )
+    
     parser.add_argument(
         "--rdzv_endpoint",
         type=str,
@@ -273,13 +44,7 @@ def parse_args(args):
         help="rendezvous backend server host:port",
     )
     parser.add_argument("--rdzv_id", type=str, help="user defined group id")
-    parser.add_argument(
-        "--rdzv_conf",
-        type=str,
-        default="",
-        help="additional rdzv configuration (conf1=v1,conf2=v2,...)",
-    )
-
+    
     # sidecar embed rdzv backend that defults to etcd
     parser.add_argument(
         "--standalone",
@@ -367,60 +132,6 @@ def parse_min_max_nnodes(nnodes: str):
     return min_nodes, max_nodes
 
 
-def wrapper_fn(omp_num_threads, cmd):
-    # TODO get rid of this wrapper_fn
-    # the agent uses multiprocessing.spawn to create nproc_per_node
-    # instances of fn, and hence expects fn to be a callable
-    # since this launcher deals with user python scripts and executables
-    # we wrap the script/executable with this function which Popens
-    # the wrapped script/executable. This implies that for each
-    # worker we create two processes (wrapper_fn and fn).
-    # the process tree looks like the following:
-    #
-    # [launcher/agent]
-    #               |-- [wrapper_fn_0]
-    #               |               |-- [fn_0]
-    #               |-- [wrapper_fn_1]
-    #               |               |-- [fn_1]
-    #               |      ...
-    #               |      ...
-    #               |-- [wrapper_fn_k]
-    #               |               |-- [fn_k]
-    #
-
-    # set PyTorch distributed related environmental variables
-    if omp_num_threads is not None:
-        os.environ["OMP_NUM_THREADS"] = str(omp_num_threads)
-
-    process = subprocess.Popen(cmd)
-
-    # since we wrap the script process with this function (which runs as a
-    # subprocess of the agent) when the agent terminates this function
-    # due to some exception or membership change event we want the script
-    # to also get killed. If we do not register this exit handler
-    # the script process will get re-parented to the parent of this function
-    # (agent process) and we will end up with multiple copies of the scriptz
-    # this should all go away with D20613415
-    def kill_script_pid(signum, frame):
-        process.terminate()
-
-    signal.signal(signal.SIGTERM, kill_script_pid)
-    #signal.signal(signal.SIGKILL, kill_script_pid)
-    signal.signal(signal.SIGINT, kill_script_pid)
-    
-
-    process.wait()
-    if process.returncode != 0:
-        raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
-
-
-def determine_local_world_size(nproc_per_node: str):
-    try:
-        logging.info(f"Using nproc_per_node={nproc_per_node}.")
-        return int(nproc_per_node)
-    except ValueError:
-        raise ValueError(f"Unsupported nproc_per_node value: {nproc_per_node}")
-        
 def PickUnusedPort():
   s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
   s.bind(('', 0))
@@ -447,7 +158,6 @@ def parse_address(arg_address):
 
 def main(args=None):
     # If ``args`` not passed, defaults to ``sys.argv[:1]``
-    print(args)
     args = parse_args(args)
 
     min_nodes, max_nodes = parse_min_max_nnodes(args.nnodes)
@@ -455,11 +165,10 @@ def main(args=None):
     assert args.max_restarts >= 0
 
     if args.standalone:
-        etcd_server = EtcdServer()
-        etcd_server.start()
-        args.rdzv_backend = "etcd"
-        args.rdzv_endpoint = etcd_server.get_endpoint()
-        args.rdzv_id = str(uuid.uuid4())
+        unused_port = PickUnusedPort()
+        orchestrator = mp.Process(target=orchestrator_server.serve, args=(unused_port))
+        orchestrator.start()
+        args.rdzv_endpoint = f"localhost:{unused_port}"
         log.info(
             f"\n**************************************\n"
             f"Rendezvous info:\n"
@@ -467,19 +176,6 @@ def main(args=None):
             f"--rdzv_endpoint={args.rdzv_endpoint} "
             f"--rdzv_id={args.rdzv_id}\n"
             f"**************************************\n"
-        )
-
-    nproc_per_node = determine_local_world_size(args.nproc_per_node)
-    omp_num_threads = None
-    if "OMP_NUM_THREADS" not in os.environ and nproc_per_node > 1:
-        omp_num_threads = 1
-        print(
-            f"*****************************************\n"
-            f"Setting OMP_NUM_THREADS environment variable for each process to be "
-            f"{omp_num_threads} in default, to avoid your system being overloaded, "
-            f"please further tune the variable for optimal performance in "
-            f"your application as needed. \n"
-            f"*****************************************"
         )
 
     with_python = not args.no_python
@@ -499,15 +195,12 @@ def main(args=None):
     cmd.extend(args.training_script_args)
 
     rdzv_handler = orchestrator_api.TFEOrchestratorHandler(args.rdzv_endpoint, min_nodes, max_nodes)
-
     address = parse_address(args.address)
 
     try:
         spec = WorkerSpec(
             role="default",
-            local_world_size=nproc_per_node,
-            fn=wrapper_fn,
-            args=(omp_num_threads, cmd),
+            args=cmd,
             rdzv_handler=rdzv_handler,
             max_restarts=args.max_restarts,
             monitor_interval=args.monitor_interval,
@@ -520,7 +213,8 @@ def main(args=None):
         rdzv_handler.shutdown()
 
     if args.standalone:
-        etcd_server.stop()
+        orchestrator.terminate()
+        orchestrator.join()
 
 
 if __name__ == "__main__":

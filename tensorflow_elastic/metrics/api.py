@@ -96,7 +96,7 @@ def _get_metric_name(fn):
         return qualname
 
 
-def prof(fn=None, group: str = "torchelastic"):
+def prof(fn=None, group: str = "tensorflowelastic"):
     r"""
     @profile decorator publishes duration.ms, count, success, failure
     metrics for the function that it decorates. The metric name defaults

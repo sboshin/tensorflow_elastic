@@ -52,13 +52,14 @@ def kill_proc_tree(pid, sig=signal.SIGTERM, include_parent=True,
     children = parent.children(recursive=True)
     if include_parent:
         children.append(parent)
-    for p in children:
-        print(f"Process {p.cmdline()} : {p}", flush=True)
+    for p in children[::-1]:
+        print(f"{p} Process {p.cmdline()} : {p}", flush=True)
         p.send_signal(sig)
-        #p.kill()
+        p.kill()
+        p.terminate()
     gone, alive = psutil.wait_procs(children, timeout=timeout,
                                     callback=on_terminate)
-    print(gone, alive, flush=True)
+    print(f"Gone {gone} Alive {alive}", flush=True)
     return (gone, alive)
 
 class ElasticParams(object):
@@ -82,7 +83,8 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
   
   def tearDown(self):
     self._t.terminate()
-  
+    self._t.join()
+    
   def join_all(self):
     for ii, proc in enumerate(self._procs):
       self._procs[ii].join()
@@ -95,10 +97,7 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
     # '--nnodes=1:2', '--nproc_per_node=1', '--rdzv_id=5', '--rdzv_backend=etcd', '--rdzv_endpoint=localhost:5379', 'ls']
     args = [
             f"--nnodes={params.nnodes}",
-            f"--nproc_per_node={params.nproc_per_node}",
-            f"--rdzv_backend=etcd",
             f"--rdzv_endpoint={SERVER_ADDRESS}",
-            f"--rdzv_id={params.run_id}",
             f"--monitor_interval=1",
             f"--start_method=fork",
             #f"--no_python",
@@ -120,10 +119,11 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
     #Use launc to start the process
     print(f"Terminating process {node_num}", flush=True)
     proc = self._procs.pop(node_num)
-    kill_proc_tree(proc.pid, timeout=2, include_parent=False)
-    time.sleep(1)
+    kill_proc_tree(proc.pid, timeout=2, include_parent=True)
+    #time.sleep(1)
     proc.terminate()
     proc.join()
+    print(f"After terminate, {proc.is_alive()}", flush=True)
     
 
   def test_tfconfig(self):
@@ -160,7 +160,7 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
     for ii in range(start_count):
       params = ElasticParams(args=args, nnodes=nnodes)
       self._start_node(self._run_in_launch, {"params":params})
-    time.sleep(15)
+    time.sleep(25)
     
     
     #for ii in range(start_count):
@@ -188,7 +188,7 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
 
     self._end_node(0)
 
-    time.sleep(25)
+    time.sleep(55)
 
     self.join_all()
 
@@ -209,7 +209,7 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
 
     time.sleep(25)
 
-    self._end_node(0)
+    self._end_node(2)
 
     self.join_all()
 
