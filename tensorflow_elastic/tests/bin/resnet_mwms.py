@@ -32,6 +32,8 @@ WorkerTrainingState.delete_backup = delete_backup
 
 from tensorflow.python.distribute.collective_all_reduce_strategy import CollectiveAllReduceStrategy
 
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="tf_config test")
 
@@ -40,26 +42,32 @@ def parse_args():
     )
     return parser.parse_args()
 
-def mnist_dataset(batch_size):
-  (x_train, y_train), _ = tf.keras.datasets.mnist.load_data()
-  # The `x` arrays are in uint8 and have values in the range [0, 255].
-  # We need to convert them to float32 with values in the range [0, 1]
-  x_train = x_train / np.float32(255)
-  y_train = y_train.astype(np.int64)
+def cifar_dataset(batch_size):
+  # (x_train, y_train), _ = tf.keras.datasets.mnist.load_data()
+  # # The `x` arrays are in uint8 and have values in the range [0, 255].
+  # # We need to convert them to float32 with values in the range [0, 1]
+  # x_train = x_train / np.float32(255)
+  # y_train = y_train.astype(np.int64)
+  # train_dataset = tf.data.Dataset.from_tensor_slices(
+  #     (x_train, y_train)).shuffle(60000).repeat().batch(batch_size)
+
+  (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
+
+  # Normalize pixel values to be between 0 and 1
+  train_images, test_images = train_images / 255.0, test_images / 255.0
+
   train_dataset = tf.data.Dataset.from_tensor_slices(
-      (x_train, y_train)).shuffle(60000).repeat().batch(batch_size)
+      (train_images, train_labels)).shuffle(60000).repeat().batch(batch_size)
+
   return train_dataset
 
 
 def build_and_compile_cnn_model():
-  model = tf.keras.Sequential([
-      tf.keras.Input(shape=(28, 28)),
-      tf.keras.layers.Reshape(target_shape=(28, 28, 1)),
-      tf.keras.layers.Conv2D(32, 3, activation='relu'),
-      tf.keras.layers.Flatten(),
-      tf.keras.layers.Dense(128, activation='relu'),
-      tf.keras.layers.Dense(10)
-  ])
+  model = tf.keras.applications.EfficientNetB7(
+    include_top=True, weights=None, input_tensor=None, input_shape=None,
+    pooling=True, classes=10, classifier_activation='softmax',
+)
+
   model.compile(
       loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
       optimizer=tf.keras.optimizers.SGD(learning_rate=0.001),
@@ -73,24 +81,25 @@ def main():
     """
     args = parse_args()
 
-    assert "TF_CONFIG" in os.environ
+    #assert "TF_CONFIG" in os.environ
 
     tf_config = os.environ["TF_CONFIG"]
     print("TF_CONFIG env is %s "%(tf_config))
     tf_config = json.loads(tf_config)
     
     strategy = CollectiveAllReduceStrategy()
+    #strategy = tf.distribute.get_strategy()
+
     num_workers = strategy.extended._cluster_resolver.cluster_spec().num_tasks("worker")
     per_worker_batch_size = 64
 
     tmp_dir = "/tmp/backup"
     
-
     # Here the batch size scales up by number of workers since 
     # `tf.data.Dataset.batch` expects the global batch size. Previously we used 64, 
     # and now this becomes 128.
     global_batch_size = per_worker_batch_size * num_workers
-    multi_worker_dataset = mnist_dataset(global_batch_size)
+    multi_worker_dataset = cifar_dataset(global_batch_size)
 
     with strategy.scope():
       # Model building/compiling need to be within `strategy.scope()`.
@@ -101,7 +110,7 @@ def main():
     # purposes only and may not sufficiently produce a model with good quality.
     callbacks = [tf.keras.callbacks.experimental.BackupAndRestore(backup_dir=tmp_dir)]
 
-    multi_worker_model.fit(multi_worker_dataset, epochs=30, steps_per_epoch=args.epochs, callbacks=callbacks)
+    multi_worker_model.fit(multi_worker_dataset, epochs=args.epochs, steps_per_epoch=15, callbacks=callbacks)
 
     return 0
     

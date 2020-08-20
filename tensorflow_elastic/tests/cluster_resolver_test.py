@@ -75,13 +75,18 @@ class ElasticParams(object):
 class ElasticTensorflowTFConfigTest(test.TestCase):
   def setUp(self):
     # Setup the grpc server
-    self._t = Process(target=serve)
+    args = [
+            f"--standalone",
+            f"--rdzv_endpoint={SERVER_ADDRESS}",
+           "ls"]
+    self._t = Process(target=main, args=(args,))
     self._t.start()
     time.sleep(2)
     self._procs = []
     self._exclude_procs = []
   
   def tearDown(self):
+    print("Terminating", flush=True)
     self._t.terminate()
     self._t.join()
     
@@ -192,8 +197,14 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
 
     self.join_all()
 
+  def _reset_backupdir(self):
+    tmp_dir = "/tmp/backup"
+    if(os.path.isdir(tmp_dir)):
+     import shutil
+     shutil.rmtree(tmp_dir)
     
   def test_mnistElastic(self):
+    self._reset_backupdir()
     start_count = 2
     nnodes = "2:3"
     args = ["--epochs=30"]
@@ -213,10 +224,26 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
 
     self.join_all()
 
+  def test_resnetElastic(self):
+    self._reset_backupdir()
+    start_count = 2
+    nnodes = "2:3"
+    args = ["--epochs=10"]
+    p_args = {"args":args, "nnodes":nnodes, "script":"bin/resnet_mwms.py"}
+    for ii in range(start_count):
+      params = ElasticParams(**p_args)
+      self._start_node(self._run_in_launch, {"params":params})
+    time.sleep(75*3)
 
-    
 
-    
+    params = ElasticParams(**p_args)
+    self._start_node(self._run_in_launch, {"params":params})
+
+    time.sleep(75*3)
+
+    self._end_node(2)
+
+    self.join_all()
 
 if __name__ == '__main__':
   test.main()

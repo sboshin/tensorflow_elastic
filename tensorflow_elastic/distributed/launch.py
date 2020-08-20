@@ -163,20 +163,31 @@ def main(args=None):
     min_nodes, max_nodes = parse_min_max_nnodes(args.nnodes)
     assert 0 < min_nodes <= max_nodes
     assert args.max_restarts >= 0
-
     if args.standalone:
-        unused_port = PickUnusedPort()
-        orchestrator = mp.Process(target=orchestrator_server.serve, args=(unused_port))
-        orchestrator.start()
+        endpoint_port = args.rdzv_endpoint.split(":")[-1] if args.rdzv_endpoint else None
+        unused_port = endpoint_port or PickUnusedPort()
+        #orchestrator = mp.Process(target=orchestrator_server.serve, args=(unused_port,))
+        #orchestrator.start()
         args.rdzv_endpoint = f"localhost:{unused_port}"
         log.info(
             f"\n**************************************\n"
             f"Rendezvous info:\n"
-            f"--rdzv_backend={args.rdzv_backend} "
             f"--rdzv_endpoint={args.rdzv_endpoint} "
-            f"--rdzv_id={args.rdzv_id}\n"
+            f"Starting Server with at port {endpoint_port}"
             f"**************************************\n"
         )
+
+        def kill_orchestrator(signum, frame):
+          #orchestrator.terminate()
+          #orchestrator.join()
+          print(f"Signal {signum} was called, Exiting the Orchestrator")
+          exit(0)
+
+        signal.signal(signal.SIGTERM, kill_orchestrator)
+        signal.signal(signal.SIGINT, kill_orchestrator)
+        #while(true):
+        #  orchestrator.join()
+        orchestrator_server.serve(unused_port)
 
     with_python = not args.no_python
     cmd = []
@@ -212,14 +223,10 @@ def main(args=None):
     finally:
         rdzv_handler.shutdown()
 
-    if args.standalone:
-        orchestrator.terminate()
-        orchestrator.join()
-
 
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, format="[%(levelname)s] %(asctime)s %(module)s: %(message)s"
     )
-    log.info(f"Running torchelastic.distributed.launch with args: {sys.argv}")
+    log.info(f"Running tensorflow_elastic.distributed.launch with args: {sys.argv}")
     main()

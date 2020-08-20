@@ -73,7 +73,7 @@ py_test(
         "elastic_mwms",
     ],
     srcs_version = "PY2AND3",
-    timeout = "long",
+    timeout = "eternal",
 )
 
 py_test(

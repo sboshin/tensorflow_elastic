@@ -164,7 +164,8 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     else:
       logging.info("Max waiting time reached will continue")
       #Because the gather time is longer than Health check, prior to leaving, lets reset the health check
-      self._workers[self._current_id][request.address] = time.time()
+      
+    self._workers[self._current_id][request.address] = time.time()
 
     self._update_state(done=True)
     #Create cluster spec from workers
