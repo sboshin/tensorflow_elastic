@@ -39,6 +39,8 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     self._finish_bar = False
     self._finish_sync = False
     self._stop_event = threading.Event()
+    self._start_time = None
+    self._end_time = None
     
   def _create_cluster_spec(self):
     cluser_spec_template = {"cluster":{"worker":[]}, "task":{"index": None, "type":"worker"}}
@@ -47,6 +49,12 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     logging.info(ret)
     logging.info(self._workers)
     return ret
+
+  def _check_shutdown(self):
+    if(self._state == "shutdown"):
+      return True
+    else:
+      return False
 
 
   def _update_state(self, reset=None, done=None):
@@ -102,6 +110,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       if(self._params is None):
         self._params = {"min_nodes":request.min_nodes, "max_nodes":request.max_nodes}
         self._min_barrier = threading.Barrier(request.min_nodes)
+        self._start_time = time.time()
       self._param_lock.release()
     
     #Verify params are the same
@@ -109,11 +118,11 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     v2 = self._params["max_nodes"] == request.max_nodes
     return v1 and v2
 
-
-
-    
   def GetClusterSpec(self, request, context):
-    
+    if(self._check_shutdown()):
+      #return empty cluster spec
+      return orchestrator_pb2.ClusterSpec(cluster_spec="{}")
+
     if(not self._verify_params(request)):
       logging.warning(f"Request {request} doesn't match params {self._params}")
       return orchestrator_pb2.ClusterSpec(cluster_spec="")
@@ -165,6 +174,9 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
 
   def GetWaitingNodes(self, request, context):
+    if(self._check_shutdown()):
+      return orchestrator_pb2.WaitingNodes(num_waiting_nodes=0, error_msg="Server has shutdown") 
+
     # We will use this as a health check.
     # Healthy nodes should be checking this regularly. If a node fails to check this in HEALTH_CHECK_TIMEOUT
     # We assume this node is dead
@@ -198,6 +210,9 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       self._start_sync = False
       return orchestrator_pb2.SyncResponse (success=ret_bool, data=data, error_msg=msg)
 
+    if(self._check_shutdown()):
+      return ret_val(False, "{}", "Server has shutdown")
+    
     end_time = time.time() + (2^62-1) if(request.timeout <= 0) else time.time() + request.timeout
 
     
@@ -234,7 +249,12 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       self._start_bar = False
       return orchestrator_pb2.BarrierResponse (success=ret_bool, error_msg=msg)
 
-    end_time = time.time() + (2^62-1) if(request.timeout <= 0) else time.time() + request.timeout
+    if(self._check_shutdown()):
+      return ret_val(False, "Server has shutdown")
+
+    end_time = time.time() + (2**62-1) if(request.timeout <= 0) else time.time() + request.timeout
+
+    logging.warning(f"Timeout ends {end_time - time.time()}s")
 
     self._bar_lock.acquire()
     if(not self._start_bar):
@@ -263,10 +283,21 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       self._data_bar.pop(request.address, None)
       return ret_val(False, f"Timeout reached {request.timeout}")
 
-  
+  def ShutDown(self, request, context):
+    self._param_lock.acquire()
+    if(self._end_time is None):
+      self._end_time = time.time()
+      self._state = "shutdown"
+    self._param_lock.release()
+    end_timing_string = f"Server started {self._start_time} Server ended {self._end_time} \nTotal time taken is {self._end_time - self._start_time}"
+    logging.warning(end_timing_string)
+    def ret_val(ret_str: str):
+      return orchestrator_pb2.ShutDownResponse(end_time=ret_str)
+
+    return ret_val(end_timing_string)
 
 def serve(port="50051"):
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=100))
     orchestrator_pb2_grpc.add_TFEOrchestratorServicer_to_server(
         TFEOrchestratorServicer(), server)
     server.add_insecure_port(f"[::]:{port}")

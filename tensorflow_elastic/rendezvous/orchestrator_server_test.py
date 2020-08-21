@@ -269,6 +269,27 @@ class TFEOrchestratorTest(test.TestCase):
       assert "Timeout reached" in str(e), str(e)
 
     
+  # def test_fail_barrier_workers_indefinite(self):
+
+  #   num_workers = 3
+  #   tag="test"
+  #   args = []
+  #   setup_args = []
+  #   handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
+  #   for ii in range(num_workers):
+  #     address = f"localhost:{500051+ii}"
+  #     args.append((handler, address, tag, -1, ii*6))
+  #     setup_args.append((handler, address, False))
+
+  #   pool = Pool(num_workers)
+  #   results = pool.starmap(GetClusterSpec, setup_args)
+  #   try:
+  #     results = pool.starmap(Barrier, args)
+  #   except ValueError as e:
+  #     assert "Timeout reached" in str(e), str(e)
+
+  
+    
 
     
     # print(results)
@@ -279,6 +300,48 @@ class TFEOrchestratorTest(test.TestCase):
     # assert all(error_msgs), error_msgs
     # assert len(results), results
   
+
+  def test_shutdown(self):
+    args = []
+    args2 = []
+    args3 = []
+    
+    num_workers = 3
+    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, 3, 3)
+    for ii in range(num_workers):
+      address =f"localhost:{50051+ii}"
+      data = json.dumps({ii:address})
+      args.append((handler, address, False))
+      args2.append((handler, address, "tag", 10, 1))
+      args3.append((handler, address, "tag", data, 10, 1))
+    
+    pool = Pool(num_workers)
+    results = pool.starmap(GetClusterSpec, args)
+
+    assert len(results[0]["cluster"]["worker"]) == num_workers, results[0]
+    time.sleep(5)
+    end_time = handler.ShutDown()
+    assert end_time != "", end_time
+    print(end_time, flush=True)
+
+    results = pool.starmap(GetClusterSpec, args)
+    assert results[0] == {}, results[0]
+
+    try:
+      _ = pool.starmap(Barrier, args2)
+    except ValueError as e:
+      assert "shutdown" in str(e).lower(), str(e).lower()
+
+    try:
+      _ = pool.starmap(Synchronize, args3)
+    except ValueError as e:
+      assert "shutdown" in str(e).lower(), str(e).lower()
+
+    try:
+      _ = GetWaitingNodes(handler,"localhost:50051")
+    except ValueError as e:
+      assert "shutdown" in str(e).lower(), str(e).lower()
+
 
 
     

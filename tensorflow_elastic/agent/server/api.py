@@ -736,9 +736,14 @@ class SimpleElasticAgent(ElasticAgent):
         start = time.time()
         try:
             spec = self._worker_group.spec
-            spec.rdzv_handler.Barrier(spec.address, "fake", -1)
+            spec.rdzv_handler.Barrier(spec.address, "fake", self._exit_barrier_timeout)
             log.info(
                 f"Done waiting for other agents. Elapsed: {time.time() - start} seconds"
+            )
+        except ValueError as e:
+            log.info(
+                f"Done waiting for other agents. Elapsed: {time.time() - start} seconds"
+                f"{e}"
             )
         except Exception:
             log.exception(

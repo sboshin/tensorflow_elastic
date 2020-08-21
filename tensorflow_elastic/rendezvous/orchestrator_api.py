@@ -44,5 +44,9 @@ class TFEOrchestratorHandler():
       raise ValueError(ret.error_msg)
     return ret.success, json.loads(ret.data), ret.error_msg
 
-  def shutdown(self):
-    return True
+  def ShutDown(self):
+    with grpc.insecure_channel(self.server) as channel:
+        stub = orchestrator_pb2_grpc.TFEOrchestratorStub(channel)
+        ret = stub.ShutDown(orchestrator_pb2.ShutDownRequest())
+    return ret.end_time
+    

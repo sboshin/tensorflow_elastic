@@ -221,7 +221,7 @@ def main(args=None):
         elastic_agent = LocalElasticAgent(spec, start_method=args.start_method)
         elastic_agent.run(spec.role)
     finally:
-        rdzv_handler.shutdown()
+        logging.info(rdzv_handler.ShutDown())
 
 
 if __name__ == "__main__":
