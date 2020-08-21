@@ -56,22 +56,13 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     if(self._state == "init"):
       self._state = "gather"
 
-    # if(self._state == "run" and reset):
-    #   logging.warning(f"Swapping state {self._state} to gather")
-    #   self._state = "gather"
-    #   #Reset the time to gather
-    #   self._end_gathering = time.time() + NODE_GATHER_TIMEOUT
-    #   logging.warning(f"Reset gathering time to {self._end_gathering}")
-    #   self._workers = []
-    #   self._waiting_nodes = 0
-
     if(self._state == "gather" and done):
       self._state = "run"
 
     self._lock.release()
     logging.warning("Released lock")
 
-  def _add_to_wait(self):
+  def _add_to_wait(self, request):
     self._wait_lock.acquire()
     #Should only add yourself to waiting nodes if there is space in the cluster
     if(self._waiting_nodes == 0):
@@ -80,9 +71,9 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     self._wait_lock.release()
 
     while(self._waiting_nodes < self._params["min_nodes"]):
-      logging.warning("waiting")
+      logging.warning(f"{request.address} is waiting")
       time.sleep(1)
-    self._state = "gather"
+    #self._state = "gather"
     
     
     logging.warning("Stopping wait because we have reached min nodes")
@@ -133,7 +124,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     logging.warning(f"{threading.get_ident()} : {self._state}")
     if(self._state == "run"):
       logging.warning(f"State is run")
-      self._add_to_wait()
+      self._add_to_wait(request)
       self._waiting_nodes = 0
     else:
       self._end_gathering = time.time() + NODE_GATHER_TIMEOUT

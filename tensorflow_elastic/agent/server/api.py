@@ -696,7 +696,14 @@ class SimpleElasticAgent(ElasticAgent):
                 # healthy workers will ping server as a TTL replacement
                 # Return if any remote agents have failed Ping
                 # membership changes do not count as retries
-                num_nodes_waiting = rdzv_handler.GetWaitingNodes(spec.address)
+                try:
+                  #If we try to get waiting nodes and there has been a new rendezvouz, we should try to join that new one also
+                  num_nodes_waiting = rdzv_handler.GetWaitingNodes(spec.address)
+                except ValueError as e:
+                  log.warning(e)
+                  log.warning(f"Setting num_nodes_waiting to force restart")
+                  num_nodes_waiting = -1
+
                 group_rank = self._worker_group.group_rank
                 if num_nodes_waiting > 0:
                     log.info(

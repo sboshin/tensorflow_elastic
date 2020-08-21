@@ -45,9 +45,9 @@ def GetClusterSpec(handler, address, reset, sleep=0):
   time.sleep(sleep)
   return handler.GetClusterSpec(address, reset)
 
-def GetWaitingNodes(handler, sleep=0):
+def GetWaitingNodes(handler, address, sleep=0):
   time.sleep(sleep)
-  return handler.GetWaitingNodes()
+  return handler.GetWaitingNodes(address)
 
 def Barrier(handler, address, tag, timeout, sleep=0):
   time.sleep(sleep)
@@ -102,10 +102,10 @@ class TFEOrchestratorTest(test.TestCase):
     results = pool.starmap(GetClusterSpec, args)
     
     assert len(results[0]["cluster"]["worker"]) == min_nodes, results[0]
-    time.sleep(10)
+    time.sleep(5)
     p = Process(target=GetClusterSpec, args=(handler, "localhost:50054", False))
     p.start()
-    wait_nodes = GetWaitingNodes(handler)
+    wait_nodes = GetWaitingNodes(handler, "localhost:50051")
     assert wait_nodes == (num_workers-max_nodes), f"Waiting nodes {wait_nodes} num_workers {num_workers} max_nodes {max_nodes}"
     p.terminate()
     p.join()
@@ -148,7 +148,7 @@ class TFEOrchestratorTest(test.TestCase):
     p = Process(target=GetClusterSpec, args=(handler, "localhost:50054", False))
     p.start()
     time.sleep(2)
-    wait_nodes = GetWaitingNodes(handler)
+    wait_nodes = GetWaitingNodes(handler,"localhost:50051")
     assert wait_nodes == 1, f"Waiting nodes {wait_nodes} num_workers {num_workers} max_nodes {max_nodes}"
 
     pool.close()
@@ -208,16 +208,20 @@ class TFEOrchestratorTest(test.TestCase):
 
     pool = Pool(num_workers)
     results = pool.starmap(GetClusterSpec, setup_args)
-    results = pool.starmap(Synchronize, args)
+    try:
+      results = pool.starmap(Synchronize, args)
+    except ValueError as e:
+      assert "Timeout reached" in str(e), str(e)
+    
 
-    print(results)
-    success = [ret[0] for ret in results]
-    error_msgs = [(ret[2].startswith("Timeout reached")) for ret in results]
-    data = {key: json.loads(results[0][1][key]) for key in results[0][1]}
-    assert not any(success), success
-    assert all(error_msgs), error_msgs
-    assert len(results), results
-    assert data == {}, data
+    # print(results)
+    # success = [ret[0] for ret in results]
+    # error_msgs = [(ret[2].startswith("Timeout reached")) for ret in results]
+    # data = {key: json.loads(results[0][1][key]) for key in results[0][1]}
+    # assert not any(success), success
+    # assert all(error_msgs), error_msgs
+    # assert len(results), results
+    # assert data == {}, data
 
 
   def test_barrier_workers(self):
@@ -259,16 +263,21 @@ class TFEOrchestratorTest(test.TestCase):
 
     pool = Pool(num_workers)
     results = pool.starmap(GetClusterSpec, setup_args)
-    results = pool.starmap(Barrier, args)
+    try:
+      results = pool.starmap(Barrier, args)
+    except ValueError as e:
+      assert "Timeout reached" in str(e), str(e)
 
     
-    print(results)
-    success = [ret[0] for ret in results]
-    error_msgs = [(ret[1].startswith("Timeout reached")) for ret in results]
+
     
-    assert not any(success), success
-    assert all(error_msgs), error_msgs
-    assert len(results), results
+    # print(results)
+    # success = [ret[0] for ret in results]
+    # error_msgs = [(ret[1].startswith("Timeout reached")) for ret in results]
+    
+    # assert not any(success), success
+    # assert all(error_msgs), error_msgs
+    # assert len(results), results
   
 
 
