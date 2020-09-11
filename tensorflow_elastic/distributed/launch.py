@@ -18,7 +18,7 @@ from tensorflow_elastic.rendezvous import orchestrator_server
 from tensorflow_elastic.rendezvous import orchestrator_api
 
 
-log = get_logger()
+log = get_logger("default")
 
 
 def parse_args(args):
@@ -218,15 +218,17 @@ def main(args=None):
             address=address,
         )
         metrics.initialize_metrics()
+        #metrics.configure(metrics.ConsoleMetricHandler(), "timeline")
+        metrics.configure(metrics.ConsoleMetricHandler(), "tensorflowelastic")
         elastic_agent = LocalElasticAgent(spec, start_method=args.start_method)
         elastic_agent.run(spec.role)
-    finally:
-        logging.info(rdzv_handler.ShutDown())
+        log.info(rdzv_handler.ShutDown()) 
+
+    except Exception as e:
+      print(e)
+      exit(1)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="[%(levelname)s] %(asctime)s %(module)s: %(message)s"
-    )
     log.info(f"Running tensorflow_elastic.distributed.launch with args: {sys.argv}")
     main()

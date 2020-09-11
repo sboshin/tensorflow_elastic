@@ -147,7 +147,6 @@ from .api import (  # noqa F401
     get_elapsed_time_ms,
     getStream,
     prof,
-    profile,
     publish_metric,
     put_metric,
 )

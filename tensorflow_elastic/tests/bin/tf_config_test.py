@@ -24,7 +24,7 @@ def main():
     assert "TF_CONFIG" in os.environ
 
     tf_config = os.environ["TF_CONFIG"]
-    print("TF_CONFIG env is %s "%(tf_config))
+    print("TF_CONFIG env is %s "%(tf_config), flush=True)
     
     cluster_resolver = TFConfigClusterResolver()
     #Cluster resolver commands to validate proper tfconfig
@@ -33,9 +33,9 @@ def main():
     assert cluster_resolver.task_id is not None
     assert cluster_resolver.task_type is not None
     assert cluster_spec is not None
-    assert int(cluster_resolver.task_id) == int(os.environ["RANK"]), f"task_id {cluster_resolver.task_id} | rank {os.environ['RANK']}"
+    #assert int(cluster_resolver.task_id) == int(os.environ["RANK"]), f"task_id {cluster_resolver.task_id} | rank {os.environ['RANK']}"
 
-    print(f"Task Id {cluster_resolver.task_id} and task type {cluster_resolver.task_type}")
+    print(f"Task Id {cluster_resolver.task_id} and task type {cluster_resolver.task_type}", flush=True)
     
     #As long as failures happen we should restart before sleep is over
     time.sleep(args.sleep)

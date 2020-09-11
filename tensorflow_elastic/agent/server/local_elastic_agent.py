@@ -25,7 +25,7 @@ from tensorflow_elastic.metrics.api import prof
 from tensorflow_elastic.utils.logging import get_logger
 
 
-log = get_logger()
+log = get_logger("default")
 
 
 class _DistInfo:
@@ -177,6 +177,7 @@ class LocalElasticAgent(SimpleElasticAgent):
         def kill_script_pid(signum, frame):
           print(f"Terminating {frame}", flush=True)
           proc.terminate()
+          exit(1)
         signal.signal(signal.SIGTERM, kill_script_pid)
         signal.signal(signal.SIGINT, kill_script_pid)
         
@@ -187,7 +188,6 @@ class LocalElasticAgent(SimpleElasticAgent):
             for local_rank, pid in enumerate(self._process_context.pids())
         }
 
-    @prof
     def _monitor_workers(self, worker_group: WorkerGroup) -> MonitorResult:
         role = worker_group.spec.role
 

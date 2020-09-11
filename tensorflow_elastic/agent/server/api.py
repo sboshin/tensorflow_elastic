@@ -23,7 +23,7 @@ from tensorflow_elastic.utils.logging import get_logger
 _TERMINAL_STATE_SYNC_ID = "torchelastic/agent/terminal_state"
 
 DEFAULT_ROLE = "default"
-log = get_logger()
+log = get_logger("default")
 
 
 class WorkerSpec:
@@ -645,7 +645,8 @@ class SimpleElasticAgent(ElasticAgent):
         spec = self._worker_group.spec
 
         put_metric(f"workers.{spec.role}.flakiness", int(flakiness))
-
+    
+    @prof
     def _invoke_run(self, role: str = DEFAULT_ROLE) -> Dict[int, Any]:
         # NOTE: currently only works for a single role
 
@@ -665,8 +666,9 @@ class SimpleElasticAgent(ElasticAgent):
             state = monitor_result.state
             self._worker_group.state = state
 
-            put_metric(f"workers.{role}.remaining_restarts", self._remaining_restarts)
-            put_metric(f"workers.{role}.{state.name.lower()}", 1)
+            if(state.name.lower() != "healthy"):
+              put_metric(f"workers.{role}.remaining_restarts", self._remaining_restarts)
+              put_metric(f"workers.{role}.{state.name.lower()}", 1)
 
             if state == WorkerState.SUCCEEDED:
                 log.info(

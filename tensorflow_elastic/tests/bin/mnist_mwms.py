@@ -72,11 +72,11 @@ def main():
     The tests should be run assuming we start our process with 
     """
     args = parse_args()
-
+    print(os.environ)
     assert "TF_CONFIG" in os.environ
 
     tf_config = os.environ["TF_CONFIG"]
-    print("TF_CONFIG env is %s "%(tf_config))
+    print("TF_CONFIG env is %s "%(tf_config), flush=True)
     tf_config = json.loads(tf_config)
     
     strategy = CollectiveAllReduceStrategy()

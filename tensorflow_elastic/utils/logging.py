@@ -43,7 +43,11 @@ def _setup_logger(name: Optional[str] = None):
     log = logging.getLogger(name)
     if len(log.handlers) == 0:
         # Add default handler that writes messages to stderr
-        log.addHandler(logging.StreamHandler())
+        log.propagate = 0
+        fmt = "%(thread)d | [%(levelname)s] %(asctime)s %(module)s:%(lineno)d: %(message)s"
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(fmt=fmt))
+        log.addHandler(handler)
     log.setLevel(os.environ.get("LOGLEVEL", "INFO"))
     return log
 
