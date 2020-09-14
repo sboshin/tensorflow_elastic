@@ -111,21 +111,23 @@ python -m tensorflow_elastic.distributed.launch --standalone --rdzv_endpoint=loc
     * exit barrier
         * barrier call to synchronize that workers have finished
 
-## Missing Features
+## Missing Features ([Data supported in Elastic benchmarks](testing.md))
 
 1. Formalize Recovery mechanism
     * Currently using BackupandRestore modified
     * Move to Orchestrator recovery
-2. Mid Epoch recovery
+2. Mid Epoch recovery 
+    * Losing up to 2x non 1st epoch time
     * Save/restore multi-device iterator
     * Elastic Iterator
         * 2 iterators with 2 workers, will put next index @ 3
         * Next 2 iterations with 3 workers should start from 3, and end at 9
 3. Restart workers without killing process
+    * Incuring Epoch loss, Incurring 1st epoch slowdown which is up to 5-6x epoch time
     * Reset Eager context
     * Retrace already registered functions
     * Restore state from a process that wasn't changed
-4. Formal Orchestrator API
+4. Formalize Orchestrator API
     * Current Workers: But this can currently be done through TF_CONFIG or cluster resolver
     * Help with hyperparameters dependent on number of workers
 5. Formalize Metrics API
