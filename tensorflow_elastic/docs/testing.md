@@ -39,9 +39,13 @@ python -m pip install -r /home/ubuntu/benchmark/models/official/requirements.txt
 |8:0	|20	|1648.06877	|27.46781	|0.4675	|0.706	|4.86	|
 |4:4 (20 min cycle)	|20	|2772.40931	|46.20682	|0.4038	|0.6409	|4.098	|
 |4:4 (15 min cycle)	|20	|3498.80775	|58.31346	|0.4789	|0.7175	|4.6105	|
-
-<br>
-<br>
+|4:4 (10 min cycle)	|90	|29214.64977	|486.91083	|0.6551	|0.8492	|4.2427	|
+|4:4 (15 min cycle)	|90	|13920.97258	|232.01621	|0.6482	|0.8453	|4.3401	|
+|4:0	|90	|10170.73231	|169.51221	|0.7507	|0.9071	|2.3831	|
+|8:0	|90	|6321.7386	|105.36231	|0.6474	|0.8448	|4.1199	|
+|4:4 (20 min cycle)	|90	|11690.81433	|194.84691	|0.6824	|0.8697	|2.6895	|
+|4:4 (25 min cycle)	|90	|10325.84882	|172.09748	|0.6863	|0.8708	|2.7216	|
+|	|	|	|	|	|	|	|
 
 ## In-depth timing analysis (Timeline of events for each node)
 
@@ -76,5 +80,4 @@ python -m pip install -r /home/ubuntu/benchmark/models/official/requirements.txt
 |	|	|	|Epoch time lost 84.82868695259094	|84.82869	|	|	|
 |19	|Epoch 19 took 50.23 loss: 4.8555 accuracy: 0.4675 top_5_accuracy: 0.706	|50.23	|Epoch 19 took 448.04 loss: 4.0984 accuracy: 0.4038 top_5_accuracy: 0.6409	|448.04	|397.81	|	|
 |20	|Total train time is 1648.0687718391418	|1648.06877	|Total train time is 2772.4093136787415	|2772.40931	|1124.34054	|	|
-
 
