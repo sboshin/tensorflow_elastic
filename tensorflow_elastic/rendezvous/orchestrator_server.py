@@ -88,6 +88,8 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     
     
     log.warning("Stopping wait because we have reached min nodes")
+    #Wait for any nodes sleeping to finish
+    time.sleep(2)
     
     if(self._current_id != self._next_id):
       self._wait_lock.acquire()
@@ -104,7 +106,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     log.warning(f"{self._min_barrier} {self._min_barrier.n_waiting} {self._min_barrier.parties}")
     self._min_barrier.wait()
 
-    #log.warning(f"Cur id {self._current_id}, next id {self._next_id}, workers {self._workers}")
+    log.warning(f"{threading.get_ident()}: Cur id {self._current_id}, next id {self._next_id}, workers {self._workers}")
     return
     
   def _verify_params(self, request):

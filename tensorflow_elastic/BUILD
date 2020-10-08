@@ -58,7 +58,8 @@ py_library(
     + glob(["metrics/**/*.py"])
     + glob(["rendezvous/**/*.py"])
     + glob(["timer/**/*.py"])
-    + glob(["utils/**/*.py"]),
+    + glob(["utils/**/*.py"])
+    + glob(["tensorflow/**/*.py"]),
     srcs_version = "PY2AND3",
 
 )
@@ -89,3 +90,15 @@ py_test(
     timeout = "long",
 )
 
+py_test(
+    name = "worker_restart_test",
+    srcs = [
+        "tests/worker_restart_test.py",
+    ],
+    deps = [
+        "elastic_mwms",
+        ":orchestrator_py_pb2_grpc",
+    ],
+    srcs_version = "PY2AND3",
+    timeout = "long",
+)
