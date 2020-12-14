@@ -189,6 +189,7 @@ def _tf_pip_impl(repository_ctx):
     tf_shared_library_dir = repository_ctx.os.environ[_TF_SHARED_LIBRARY_DIR]
     tf_shared_library_name = repository_ctx.os.environ[_TF_SHARED_LIBRARY_NAME]
     tf_shared_library_path = "%s/%s" % (tf_shared_library_dir, tf_shared_library_name)
+    tf_py_shared_library_path = "%s/python/_pywrap_tensorflow_internal.so" % (tf_shared_library_dir)
 
     tf_shared_library_rule = _symlink_genrule_for_dir(
         repository_ctx,
@@ -199,9 +200,19 @@ def _tf_pip_impl(repository_ctx):
         ["_pywrap_tensorflow_internal.lib"  if _is_windows(repository_ctx) else "libtensorflow_framework.so"],
     )
 
+    tf_shared_library_rule_py = _symlink_genrule_for_dir(
+        repository_ctx,
+        None,
+        "",
+        "_pywrap_tensorflow_internal.so",
+        [tf_py_shared_library_path],
+        ["lib_pywrap_tensorflow_internal.so"],
+    )
+
     _tpl(repository_ctx, "BUILD", {
         "%{TF_HEADER_GENRULE}": tf_header_rule,
         "%{TF_SHARED_LIBRARY_GENRULE}": tf_shared_library_rule,
+        "%{TF_PY_SHARED_LIBRARY_GENRULE}": tf_shared_library_rule_py,
     })
 
 tf_configure = repository_rule(

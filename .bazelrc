@@ -1,5 +1,4 @@
 build:cuda --define=using_cuda=true --define=using_cuda_nvcc=true
-build:cuda --crosstool_top=@local_config_cuda//crosstool:toolchain
 build:manylinux2010cuda100 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010-nvcc-cuda10.0:toolchain
 build:manylinux2010cuda101 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2010-nvcc-cuda10.1:toolchain
 build --spawn_strategy=standalone

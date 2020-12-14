@@ -62,8 +62,27 @@ py_library(
     + glob(["tensorflow/**/*.py"]),
     srcs_version = "PY2AND3",
 
+    deps = [":tf_extra_py"],
+
 )
 
+py_library(
+  name = "testing_utils",
+  srcs = glob(["tests/bin/*.py", "tests/utils.py"])
+)
+
+py_test(
+    name = "multi_device_iterator_test",
+    srcs = [
+        "tensorflow/multi_device_iterator_test.py",
+    ],
+    deps = [
+        "elastic_mwms",
+        ":testing_utils",
+    ],
+    srcs_version = "PY2AND3",
+    timeout = "eternal",
+)
 
 py_test(
     name = "cluster_resolver_test",
@@ -101,4 +120,45 @@ py_test(
     ],
     srcs_version = "PY2AND3",
     timeout = "long",
+)
+
+#cc_library(
+#  name = "dataset_deps",
+#  hdrs = ["tensorflow/kernels/dataset_utils.cc"],
+#  srcs = ["tensorflow/kernels/dataset_utils.cc"],
+#  deps = ["@local_config_tf//:tf_header_lib"]
+#)
+
+cc_binary(
+    name = 'tensorflow/python/_tf_extra.so',
+    srcs = [
+            "tensorflow/kernels/multi_device_iterator_ops.cc", 
+            "tensorflow/kernels/unbounded_threadpool.cc",
+            #"tensorflow/kernels/dataset_utils.cc"
+            ]
+            + glob(["tensorflow/ops/*.cc"]),
+    
+    linkshared = 1,
+    includes = ["tensorflow/kernels"],
+    deps = [
+        "@local_config_tf//:libtensorflow_framework",
+        "@local_config_tf//:pywrap_framework",
+        "@local_config_tf//:tf_header_lib",
+        #":dataset_deps",
+    ],
+    copts = select({
+        "//conditions:default": ["-pthread", "-std=c++14", "-D_GLIBCXX_USE_CXX11_ABI=0"],
+    }) + if_cuda_is_configured(["-DTENSORFLOW_USE_NVCC=1", "-DGOOGLE_CUDA=1", "-x cuda", "-nvcc_options=relaxed-constexpr", "-nvcc_options=ftz=true"]),
+)
+
+py_library(
+    name = "tf_extra_py",
+    srcs = ([
+        "tensorflow/python/tf_extra.py",
+    ]),
+    data = [
+        ":tensorflow/python/_tf_extra.so"
+    ],
+    srcs_version = "PY2AND3",
+    visibility = ["//visibility:public"],
 )

@@ -1,4 +1,5 @@
 import copy
+from six.moves import queue as Queue
 import tensorflow as tf
 from tensorflow.python.eager import context
 from tensorflow.python.platform import tf_logging as logging
@@ -19,13 +20,46 @@ from tensorflow.python.distribute import device_util
 from tensorflow.python.distribute import input_lib
 from tensorflow.core.protobuf import tensorflow_server_pb2
 
+def find_iterator(iterator):
+  bfs_q = Queue.Queue()
+  bfs_q.put(iterator)
+  visited = []
+  while not bfs_q.empty():
+    it = bfs_q.get()
+    print(it)
+    print("\n")
+    print(dir(it), it.__dict__)
+    visited.append(it)
+
+    if hasattr(it, "_iterator_resource"):
+      print(dir(it._iterator_resource), it._iterator_resource.ref())
+    if hasattr(it, "_iterators"):
+      for input_iters in it._iterators:
+        if input_iters not in visited:
+          bfs_q.put(input_iters)
+    elif hasattr(it, "_iterator"):
+      bfs_q.put(it._iterator)
+    
+  return it
 
 def update_cluster(self):
   #context._reset_context()
   #context.ensure_initialized()
   self._initialize_multi_worker(self._cluster_resolver, True)
   context.context().update_group_size(self._num_workers)
-  logging.warning("Task %d updated with %d num workers"%(self._cluster_resolver.task_id, self._num_workers))
+  logging.warning("Task %d updated with %d num workers" %
+                  (self._cluster_resolver.task_id, self._num_workers))
+  new_ds = self._experimental_distribute_dataset(self._input_dataset)
+  new_it = iter(new_ds)
+  new_it = find_iterator(new_it)
+  print(type(new_it))
+
+  for iterator in self._iterators:
+    bot_it = find_iterator(iterator)
+    bot_it.reshard_iterator(new_it._dataset)
+    print(type(bot_it))
+
+
 
 def _initialize_multi_worker(self, cluster_resolver, update_server=False):
   """Initializes the object for multi-worker training."""
@@ -35,26 +69,26 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
   task_id = cluster_resolver.task_id
   if task_type is None or task_id is None:
     raise ValueError("When `cluster_spec` is given, you must also specify "
-                      "`task_type` and `task_id`.")
+                     "`task_type` and `task_id`.")
   self._cluster_spec = cluster_spec
   self._task_type = task_type
   self._task_id = task_id
-  self._id_in_cluster = multi_worker_util.id_in_cluster(
-      self._cluster_spec, self._task_type, self._task_id)
+  self._id_in_cluster = multi_worker_util.id_in_cluster(self._cluster_spec,
+                                                        self._task_type,
+                                                        self._task_id)
 
   self._num_workers = multi_worker_util.worker_count(cluster_spec, task_type)
   if not self._num_workers:
     raise ValueError("No `worker`, `chief` or `evaluator` tasks can be found "
-                      "in `cluster_spec`.")
+                     "in `cluster_spec`.")
 
-  self._is_chief = multi_worker_util.is_chief(cluster_spec, task_type,
-                                              task_id)
+  self._is_chief = multi_worker_util.is_chief(cluster_spec, task_type, task_id)
 
   self._worker_device = "/job:%s/task:%d" % (task_type, task_id)
   self._host_input_device = numpy_dataset.SingleDevice(self._worker_device)
 
-  if(not update_server):
-  #if(True):
+  if (not update_server):
+    #if(True):
     if (ops.executing_eagerly_outside_functions() and
         not getattr(self, "_local_or_standalone_client_mode", False)):
       context.context().configure_collective_ops(
@@ -64,7 +98,8 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
           device_filters=("/job:%s/task:%d" % (task_type, task_id),))
       self._collective_ops_configured = True
   else:
-    context.context()._collective_device_filters = ("/job:%s/task:%d" % (task_type, task_id),)
+    context.context()._collective_device_filters = ("/job:%s/task:%d" %
+                                                    (task_type, task_id),)
 
   print(context.context()._collective_device_filters, flush=True)
   # Starting a std server in eager mode and in independent worker mode.
@@ -88,7 +123,7 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
         protocol=cluster_resolver.rpc_layer or "grpc",
         port=port)
     context.context().enable_collective_ops(server_def)
-    print(f"\n\n\nServer Def is {server_def}\n\n",flush=True)
+    print(f"\n\n\nServer Def is {server_def}\n\n", flush=True)
     self._std_server_started = True
     # The `ensure_initialized` is needed before calling
     # `context.context().devices()`.
@@ -108,13 +143,13 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
     num_gpus = cluster_resolver.num_accelerators().get("GPU", 0)
 
   if num_gpus:
-    local_devices = tuple("%s/device:GPU:%d" % (self._worker_device, i)
-                          for i in range(num_gpus))
+    local_devices = tuple(
+        "%s/device:GPU:%d" % (self._worker_device, i) for i in range(num_gpus))
   else:
     local_devices = (self._worker_device,)
 
-  print(f"\n\n\n{context.context().list_logical_devices()}\n\n",flush=True)
-  if(not update_server):
+  print(f"\n\n\n{context.context().list_logical_devices()}\n\n", flush=True)
+  if (not update_server):
     self._collective_keys = cross_device_utils.CollectiveKeys()
   self._cross_device_ops = cross_device_ops_lib.CollectiveAllReduce(
       devices=local_devices,
@@ -122,15 +157,16 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
       collective_keys=self._collective_keys,
       communication=self._communication)
   # CrossDeviceOps for per host tensors.
+  print("before Setting host ops", flush=True)
   self._host_cross_device_ops = cross_device_ops_lib.CollectiveAllReduce(
       devices=[self._worker_device],
       group_size=self._num_workers,
       collective_keys=self._collective_keys,
       communication=cross_device_ops_lib.CollectiveCommunication.RING,
   )
-  super(collective_all_reduce_strategy.CollectiveAllReduceExtended, self)._initialize_single_worker(
-      local_devices)
-
+  super(collective_all_reduce_strategy.CollectiveAllReduceExtended,
+        self)._initialize_single_worker(local_devices)
+  print("HERERERERE", flush=True)
   # Add a default device so that ops without specified devices will not end up
   # on other workers.
   self._default_device = "/job:%s/task:%d" % (task_type, task_id)
@@ -140,49 +176,71 @@ def _initialize_multi_worker(self, cluster_resolver, update_server=False):
   self._rpc_layer = cluster_resolver.rpc_layer
   self._warn_nccl_no_gpu()
 
+  self._iterators = []
+
   # TODO(b/151232436): Enable check health thread by default.
-  if self._enable_check_health:
-    self._start_check_health_thread()
+  #if self._enable_check_health:
+  #  self._start_check_health_thread()
 
   logging.info(
       "MultiWorkerMirroredStrategy with cluster_spec = %r, task_type = %r, "
       "task_id = %r, num_workers = %r, local_devices = %r, "
-      "communication = %s", cluster_spec.as_dict(), task_type,
-      task_id, self._num_workers, local_devices,
-      self._communication)
+      "communication = %s", cluster_spec.as_dict(), task_type, task_id,
+      self._num_workers, local_devices, self._communication)
 
+def get_elastic_iterator(self, dataset):
+  print("Task %d getting elastic iterator"%(self._task_id))
+  it = iter(dataset)
+  print(it, type(it), type(dataset))
+  self._iterators.append(it)
+  
+  return it
 
+def _experimental_distribute_dataset(self, dataset, options=None):
+  self._input_dataset = dataset
+  input_context = self._make_input_context()
+  self._input_dataset_dist = input_lib.get_distributed_dataset(
+      dataset,
+      self._input_workers,
+      self._container_strategy(),
+      split_batch_by=self._num_replicas_in_sync,
+      input_context=input_context)
+  return self._input_dataset_dist
 
+collective_all_reduce_strategy.CollectiveAllReduceExtended.get_elastic_iterator = get_elastic_iterator
 collective_all_reduce_strategy.CollectiveAllReduceExtended.update_cluster = update_cluster
 collective_all_reduce_strategy.CollectiveAllReduceExtended._initialize_multi_worker = _initialize_multi_worker
+collective_all_reduce_strategy.CollectiveAllReduceExtended._experimental_distribute_dataset = _experimental_distribute_dataset
 
 # Update context
 def update_group_size(self, group_size):
-    modified_fns = []
-    for each in self._added_fns:
-      if(self.has_function(each)):
-        f_def = self.get_function_def(each)
-        modified = False
-        for node in f_def.node_def:
-          if(node.op == "CollectiveReduce"):
-            modified = True
-            for attr_name in node.attr:
-              if(attr_name == "group_size"):
-                node.attr[attr_name].i = group_size
-          if(node.op == "CollectiveBcastRecv" or node.op == "CollectiveBcastSend"):
-            # logging.warning(node)
-            modified = True
-            for attr_name in node.attr:
-              if(attr_name == "group_size"):
-                node.attr[attr_name].i = group_size
-          
-        #print("Function def is ",f_def)
-        if(modified):
-          self.remove_function(each)
-          modified_fns.append((each, f_def))
-    for each in modified_fns:
-      self._added_fns.remove(each[0])
-      self.add_function_def(each[1])
+  modified_fns = []
+  for each in self._added_fns:
+    if (self.has_function(each)):
+      f_def = self.get_function_def(each)
+      modified = False
+      for node in f_def.node_def:
+        if (node.op == "CollectiveReduce"):
+          modified = True
+          for attr_name in node.attr:
+            if (attr_name == "group_size"):
+              node.attr[attr_name].i = group_size
+        if (node.op == "CollectiveBcastRecv" or
+            node.op == "CollectiveBcastSend"):
+          # logging.warning(node)
+          modified = True
+          for attr_name in node.attr:
+            if (attr_name == "group_size"):
+              node.attr[attr_name].i = group_size
+
+      #print("Function def is ",f_def)
+      if (modified):
+        self.remove_function(each)
+        modified_fns.append((each, f_def))
+  for each in modified_fns:
+    self._added_fns.remove(each[0])
+    self.add_function_def(each[1])
+
 
 def add_function(self, fn):
   """Add a function definition to the context.
@@ -203,6 +261,7 @@ def add_function(self, fn):
   self._added_fns.append(name)
   pywrap_tfe.TFE_ContextAddFunction(self._handle, fn)
 
+
 def add_function_def(self, fdef):
   """Add a function definition to the context.
 
@@ -216,7 +275,8 @@ def add_function_def(self, fdef):
   self._added_fns.append(compat.as_bytes(fdef.signature.name))
   fdef_string = fdef.SerializeToString()
   pywrap_tfe.TFE_ContextAddFunctionDef(self._handle, fdef_string,
-                                        len(fdef_string))
+                                       len(fdef_string))
+
 
 context.Context.update_group_size = update_group_size
 context.Context.add_function = add_function

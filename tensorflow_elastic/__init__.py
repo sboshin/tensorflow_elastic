@@ -7,3 +7,4 @@
 # LICENSE file in the root directory of this source tree.
 
 from .version import __version__ as __version__  # noqa F401
+from . import tensorflow

@@ -14,5 +14,13 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+cc_library(
+    name = "pywrap_framework",
+    srcs = [":_pywrap_tensorflow_internal.so"],
+    #data = ["lib/libtensorflow_framework.so"],
+    visibility = ["//visibility:public"],
+)
+
 %{TF_HEADER_GENRULE}
 %{TF_SHARED_LIBRARY_GENRULE}
+%{TF_PY_SHARED_LIBRARY_GENRULE}
