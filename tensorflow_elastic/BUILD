@@ -59,7 +59,8 @@ py_library(
     + glob(["rendezvous/**/*.py"])
     + glob(["timer/**/*.py"])
     + glob(["utils/**/*.py"])
-    + glob(["tensorflow/**/*.py"]),
+    + glob(["tensorflow/**/*.py"])
+    + glob(["api/**/*.py"]),
     srcs_version = "PY2AND3",
 
     deps = [":tf_extra_py"],
@@ -122,6 +123,20 @@ py_test(
     timeout = "long",
 )
 
+py_test(
+    name = "worker_norestart_test",
+    srcs = [
+        "tests/worker_norestart_test.py",
+    ],
+    deps = [
+        "elastic_mwms",
+        ":orchestrator_py_pb2_grpc",
+        ":testing_utils",
+    ],
+    srcs_version = "PY2AND3",
+    timeout = "long",
+)
+
 #cc_library(
 #  name = "dataset_deps",
 #  hdrs = ["tensorflow/kernels/dataset_utils.cc"],
@@ -156,9 +171,9 @@ py_library(
     srcs = ([
         "tensorflow/python/tf_extra.py",
     ]),
-    data = [
-        ":tensorflow/python/_tf_extra.so"
-    ],
+    #data = [
+    #    ":tensorflow/python/_tf_extra.so"
+    #],
     srcs_version = "PY2AND3",
     visibility = ["//visibility:public"],
 )

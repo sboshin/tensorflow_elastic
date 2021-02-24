@@ -14,7 +14,16 @@ service TFEOrchestrator {
 
   rpc ShutDown(ShutDownRequest) returns (ShutDownResponse) {}
 
+  rpc UniqueIndex(UniqueIndexRequest) returns (UniqueIndexResponse) {}
 
+}
+
+message UniqueIndexResponse {
+  string unique_index = 1;
+}
+
+message UniqueIndexRequest {
+  string address = 1;
 }
 
 message ClusterSpec {

@@ -22,9 +22,11 @@ CUSTOMENV["LD_LIBRARY_PATH"] = "/usr/local/cuda-10.1/lib64"
 CUSTOMENV["AWS_REGION"]="us-west-2"
 CUSTOMENV["S3_ENDPOINT"]="s3.us-west-2.amazonaws.com"
 CUSTOMENV["PYTHONPATH"]="/home/ubuntu/src/cntk/bindings/python:/home/ubuntu/benchmark/models"
-CUSTOMENV["TF_CPP_MIN_LOG_LEVEL"] = 1
+CUSTOMENV["TF_CPP_MIN_LOG_LEVEL"] = 0
 CUSTOMENV["TF_CPP_MIN_VLOG_LEVEL"] = 0
 CUSTOMENV["TF_DETERMINISTIC_OPS"] = 1
+CUSTOMENV["LD_LIBRARY_PATH"] = "/usr/local/cuda-11.0/extras/CUPTI/lib64:/usr/lib64/openmpi/lib/:/usr/local/cuda/lib64:/usr/local/lib:/usr/lib:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/mpi/lib:/lib/:/usr/local/cuda/lib64:/usr/local/lib:/usr/lib:/usr/local/cuda/extras/CUPTI/lib64:/opt/amazon/openmpi/lib:/usr/local/cuda/lib:/opt/amazon/efa/lib:/usr/local/mpi/lib:/usr/lib64/openmpi/lib/:/usr/local/cuda/lib64:/usr/local/lib:/usr/lib:/usr/local/cuda/extras/CUPTI/lib64:/usr/local/mpi/lib:/lib/:"
+
 
 def delete_s3_key(bucket, key, region):
   s3 = boto3.resource('s3')
@@ -32,9 +34,9 @@ def delete_s3_key(bucket, key, region):
   bucket.objects.filter(Prefix=f"{key}/").delete()
   
 
-def setup_tf_config(hostnames, private_ips, port):
+def setup_tf_config(hostnames, private_ips, port, orchestrator=""):
   ports_added = [f"{ip}:{port}" for ip in private_ips]
-  cluster_temp = {"cluster":{"worker":ports_added}, "task":{"index":None, "type":"worker"}}
+  cluster_temp = {"cluster":{"worker":ports_added, "orchestrator":[orchestrator]}, "task":{"index":None, "type":"worker"}}
   cluster_spec_hostname = {}
   for ii, _ in enumerate(private_ips):
     tmp_cspec = copy.copy(cluster_temp)
@@ -54,7 +56,7 @@ def run_setup_script_on_hostnames(setup_script, hostnames, key, instance_ids):
     setup_pool.starmap(run_setup_script, mp_args)
   except Exception as e:
     print(e)
-    terminate_instances(instance_ids)
+    #terminate_instances(instance_ids)
     raise e
   print(f"\nFinished setting up {hostnames}\n", flush=True)
 
@@ -115,6 +117,7 @@ def start_instances(instance_type, instance_cnt, ami, key, suffix=""):
       time.sleep(10)
       
   print(f"\nFinished provisioning {instance_cnt} {instance_type} instance(s)\n")
+  print(f"{instance_ids}, {hostnames}, {private_ips}")
   return instance_ids, hostnames, private_ips
 
 def terminate_instances(instance_ids):

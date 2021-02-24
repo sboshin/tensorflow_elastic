@@ -101,6 +101,24 @@ There are 2 types of cluster changes, nodes joining or nodes leaving. When nodes
 
 ## In-process Restart
 
+**Process Teardown Design**
+
+python ./tensorflow_elastic/tests/benchmark/run_aws_test.py --log_dir ./benchmark_logs/test --instance_type p3.16xlarge --instance_cnt 6 --ami ami-098555c9b343eb09c --key_name tf_neo_ecl --design 0 --setup_script ./test_setup_script.sh --elastic_nodes 4 --elastic_pattern cycle:10 ./tensorflow_elastic/tests/bin/resnet_mwms_ctl.py --epochs 40 | tee olddes.log
+
+**In-Process Design**
+
+python ./tensorflow_elastic/tests/benchmark/run_aws_test.py --log_dir ./benchmark_logs/inproc --instance_type p3.16xlarge --instance_cnt 6 --ami ami-098555c9b343eb09c --key_name tf_neo_ecl --design 1 --setup_script ./test_setup_script.sh --elastic_nodes 4 --elastic_pattern cycle:10 ./tensorflow_elastic/tests/bin/resnet_mwms_ctl_new_design.py --epochs 40 --min_nodes 6 --max_nodes 10 | tee newdes.log
+
+** Baseline new**
+python ./tensorflow_elastic/tests/benchmark/run_aws_test.py --log_dir ./benchmark_logs/test --instance_type p3.16xlarge --instance_cnt 10 --ami ami-098555c9b343eb09c --key_name tf_neo_ecl --design 1 --setup_script ./test_setup_script.sh ./tensorflow_elastic/tests/bin/resnet_mwms_ctl_new_design.py --epochs 40 --min_nodes 10 --max_nodes 10 | tee new_baseline.log 
+
+** Baseline old**
+python ./tensorflow_elastic/tests/benchmark/run_aws_test.py --log_dir ./benchmark_logs/baseline_old --instance_type p3.16xlarge --instance_cnt 10 --ami ami-098555c9b343eb09c --key_name tf_neo_ecl --design 0 --setup_script ./test_setup_script.sh ./tensorflow_elastic/tests/bin/resnet_mwms_ctl.py --epochs 40 | tee old_baseline.log 
+
+
+** Debug old
+python ./tensorflow_elastic/tests/benchmark/run_aws_test.py --debug_mode --log_dir ./benchmark_logs/test --instance_type p3.16xlarge --instance_cnt 6 --ami ami-098555c9b343eb09c --key_name tf_neo_ecl --design 0 --setup_script ./test_setup_script.sh ./tensorflow_elastic/tests/bin/resnet_mwms_ctl.py --epochs 40 | tee olddes.log
+
 |	|Process Teardown	|In-Process Restart	|
 |---	|---	|---	|
 |Script Setup	|54	|38	|

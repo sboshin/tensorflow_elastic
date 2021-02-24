@@ -7,7 +7,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+import socket
 
+used_ports = []
 
 def get_env_variable_or_raise(env_name: str) -> str:
     r"""
@@ -22,3 +24,13 @@ def get_env_variable_or_raise(env_name: str) -> str:
         msg = f"Environment variable {env_name} expected, but not set"
         raise ValueError(msg)
     return value
+
+def PickUnusedPort():
+  s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+  s.bind(('', 0))
+  port = s.getsockname()[1]
+  s.close()
+  return port
+
+def get_socket_with_port():
+  return socket.gethostname()+":"+str(PickUnusedPort())

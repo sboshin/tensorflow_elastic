@@ -3,6 +3,7 @@ import time
 import math
 import logging
 import json
+import queue
 
 import grpc
 
@@ -14,6 +15,9 @@ NODE_GATHER_TIMEOUT = 30
 HEALTH_CHECK_TIMEOUT = 10
 
 log = get_logger("default")
+
+def printf(*args, **kwargs):
+  print(*args, **kwargs, flush=True)
 
 class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
@@ -27,28 +31,71 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     self._workers = {0:{}}
     self._params = None
     self._lock = threading.Lock()
-    self._gathering = False
-    self._state = "init"
-    self._end_gathering = None
     self._param_lock = threading.Lock()
-    self._wait_lock = threading.Lock()
     self._waiting_nodes = 0
-    self._sync_lock = threading.Lock()
-    self._bar_lock = threading.Lock()
-    self._data_sync = {}
-    self._data_bar = {}
-    self._start_sync = {}
-    self._start_bar = {}
-    self._finish_bar = False
-    self._finish_sync = False
-    self._stop_event = threading.Event()
     self._start_time = None
     self._end_time = None
-    
-  def _create_cluster_spec(self):
-    cluser_spec_template = {"cluster":{"worker":[]}, "task":{"index": None, "type":"worker"}}
-    cluser_spec_template["cluster"]["worker"] = list(self._workers[self._current_id].keys())
-    ret = json.dumps(cluser_spec_template)
+    self._curr_nodes = 0
+    self._ret_nodes = 0
+    self._node_lock = threading.Lock()
+    self._node_event = threading.Event()
+    self._node_event.clear()
+    self._node_prep = threading.Event()
+    self._node_prep.set()
+    self._min_timer_event = threading.Event()
+    self._node_cond = threading.Condition()
+    self._state = ""
+    self._bar_lock = threading.Lock()
+    self._sync_lock = threading.Lock()
+    self._start_bar = False
+    self._wait_thread = None
+    self._working_id = 0
+    self._start_sync = None
+    self._failed_lease = False
+    self._address_index = {}
+    self._max_index = 0
+    self._node_queue = queue.Queue()
+    #Testing
+    #self._address_index["localhost:50050"] = 2
+    #self._address_index["localhost:50051"] = 0
+    #self._address_index["localhost:50052"] = 1
+    #self._max_index = 3
+  
+  def _create_sparse_worker_dict(self, workers, address):
+    ret = {}
+    my_index = None
+    print(workers, address, flush=True)
+    for worker in workers:
+      if(worker not in self._address_index):
+        self._address_index[worker] = self._max_index
+        self._max_index +=1
+
+      ret[self._address_index[worker]] = worker
+      
+      if(worker == address):
+        my_index = self._address_index[address]
+    print(ret, my_index, flush=True)
+    return ret, my_index
+
+
+
+  def UniqueIndex(self, request, context):
+    worker = request.address
+    self._node_lock.acquire()
+    if(worker not in self._address_index):
+        self._address_index[worker] = self._max_index
+        self._max_index +=1
+    self._node_lock.release()
+    return orchestrator_pb2.UniqueIndexResponse(unique_index=str(self._address_index[worker]))
+
+
+  def _create_cluster_spec(self, cid, request):
+    cluster_spec_template = {"cluster":{"worker":{}}, "task":{"index": None, "type":"worker"}}
+    #cluser_spec_template["cluster"]["worker"] = list(self._workers[self._current_id].keys())
+    worker_dict, my_index = self._create_sparse_worker_dict(list(self._workers[cid].keys()), request.address)
+    cluster_spec_template["cluster"]["worker"] = worker_dict
+    cluster_spec_template["task"]["index"] = my_index
+    ret = json.dumps(cluster_spec_template)
     log.info(ret)
     log.info(self._workers)
     return ret
@@ -60,55 +107,6 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       return False
 
 
-  def _update_state(self, reset=None, done=None):
-    log.warning("Trying to update state")
-    self._lock.acquire()
-    log.warning("Acquired lock")
-    if(self._state == "init"):
-      self._state = "gather"
-
-    if(self._state == "gather" and done):
-      self._state = "run"
-
-    self._lock.release()
-    log.warning("Released lock")
-
-  def _add_to_wait(self, request):
-    self._wait_lock.acquire()
-    #Should only add yourself to waiting nodes if there is space in the cluster
-    if(self._waiting_nodes == 0):
-      self._next_id = self._current_id +1
-    self._waiting_nodes += 1
-    self._wait_lock.release()
-
-    while(self._waiting_nodes < self._params["min_nodes"]):
-      log.warning(f"{request.address} is waiting")
-      time.sleep(1)
-    #self._state = "gather"
-    
-    
-    log.warning("Stopping wait because we have reached min nodes")
-    #Wait for any nodes sleeping to finish
-    time.sleep(2)
-    
-    if(self._current_id != self._next_id):
-      self._wait_lock.acquire()
-      self._current_id = self._next_id
-      if(self._current_id not in self._workers):
-        #self._update_state(reset=True) #Reset once we get a new id
-        self._state = "gather"
-        self._workers[self._current_id] = {}
-        #Reset End time
-        self._end_gathering = time.time() + NODE_GATHER_TIMEOUT
-      self._wait_lock.release()
-    
-      
-    log.warning(f"{self._min_barrier} {self._min_barrier.n_waiting} {self._min_barrier.parties}")
-    self._min_barrier.wait()
-
-    log.warning(f"{threading.get_ident()}: Cur id {self._current_id}, next id {self._next_id}, workers {self._workers}")
-    return
-    
   def _verify_params(self, request):
     if(self._params is None):
       self._param_lock.acquire()
@@ -130,52 +128,102 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
     if(not self._verify_params(request)):
       log.warning(f"Request {request} doesn't match params {self._params}")
-      return orchestrator_pb2.ClusterSpec(cluster_spec="")
-    log.warning(f"{threading.get_ident()} : {request}")
-    self._update_state()
-    #We are already running, and a reset hasn't been requested
-    # Reset requests happen when a node identifies num of waiting nodes is > 0    
-    log.warning(f"{threading.get_ident()} : {self._state}")
-    if(self._state == "run"):
-      log.warning(f"State is run")
-      self._add_to_wait(request)
-      self._waiting_nodes = 0
-    else:
-      self._end_gathering = time.time() + NODE_GATHER_TIMEOUT
-    
-    #Currently we can't handle excess nodes
-    self._lock.acquire()
-    log.warning(f"{threading.get_ident()} Acquired lock + {request}")
-    self._workers[self._current_id][request.address] = time.time()
-    self._lock.release()
-    log.warning("Released lock")
+      return orchestrator_pb2.ClusterSpec(cluster_spec="{}")
+
+    log.warning(f"Request is {request}")
+
+    if(request.reset):
+      #Delete address map
+      log.warning(f"Resetting address index map")
+      self._address_index = {}
+      self._max_index = 3
+      self._address_index["localhost:50053"] = 2
+      self._address_index["localhost:50054"] = 0
+      self._address_index["localhost:50055"] = 1
 
     
+    log.warning(f"{request.address} waiting for prep")
+    self._node_prep.wait()
+    log.warning(f"{request.address} update and check")
+    curr_id = self._update_and_check_nodes(request.address)
+    log.warning(f"{request.address} Node event {self._node_event.is_set()}")
+    log.warning(f"{request.address} waiting for event")
+    self._node_event.wait()
     
-    while(len(self._workers[self._current_id]) < request.min_nodes):
-      log.warning(f"# of workers {len(self._workers[self._current_id])} hasn't reached Min nodes of {request.min_nodes}")
+    self._node_queue.put(request.address)
+    
+    self._min_timer_event.clear()
+    
+    log.warning(f"{request.address} creating cspec")
+    with self._node_lock:
+      c_spec = orchestrator_pb2.ClusterSpec(cluster_spec=self._create_cluster_spec(curr_id, request))
+    
+    log.warning(f"{request.address} created cspec")
+    self._wait_thread = None #should we delete this??
+    self._working_id = curr_id
+    
+    #Don't clear until all nodes are accounted for.
+    with self._node_lock:
+      cur_num = len(self._workers[self._working_id])
+      log.warning(f"{request.address} Current number of nodes is {cur_num}")
+
+    while(self._node_queue.qsize() < cur_num):
+      with self._node_lock:
+        cur_num = len(self._workers[self._working_id])
+        log.warning(f"{request.address} Current number of nodes is {cur_num}")
       time.sleep(1)
-      
+    self._node_event.clear()
+    self._node_prep.set()
 
-    log.warning(f"Waiting to end gathering at {self._end_gathering}")
-    while (time.time() < self._end_gathering ):
-      if(len(self._workers[self._current_id]) < request.max_nodes):
-        log.info(f"Waiting for more nodes to gather, current node count {len(self._workers[self._current_id])}")
-        time.sleep(NODE_GATHER_TIMEOUT*.1)
-      else:
-        log.info(f"Max nodes reached {len(self._workers[self._current_id])}")
-        #Head back to waiting?
-        break
-    else:
-      log.info("Max waiting time reached will continue")
-      #Because the gather time is longer than Health check, prior to leaving, lets reset the health check
-      
-    self._workers[self._current_id][request.address] = time.time()
+    log.warning(f"{request.address} finished GetClusterSpec")
+    return c_spec
 
-    self._update_state(done=True)
-    #Create cluster spec from workers
-    log.info("Returning")
-    return orchestrator_pb2.ClusterSpec(cluster_spec=self._create_cluster_spec())
+  def _node_event_setup(self):
+    self._node_prep.clear()
+    self._node_event.set()
+    self._current_id +=1
+    self._workers[self._current_id] = {}
+    
+
+  def _min_timer(self):
+    print("Going to sleep", flush=True)
+    time.sleep(NODE_GATHER_TIMEOUT)
+    print("waking up", flush=True)
+    if (self._min_timer_event.is_set()):
+      self._node_event_setup()
+
+  def _start_wait_thread(self):
+    printf(self._wait_thread)
+    self._min_timer_event.set()
+    if(self._wait_thread is None):
+      self._wait_thread = threading.Thread(target=self._min_timer)
+      self._wait_thread.start()
+
+
+
+  def _update_and_check_nodes(self, address):
+    #Check number of nodes, if nodes >= min nodes and < max_nodes
+    # set node pass event
+    with self._node_lock:
+      cur_nodes = len(self._workers[self._current_id])
+      cur_id = self._current_id
+      
+      if(cur_nodes <= self._params["max_nodes"]):
+        self._workers[self._current_id].update({address:0})
+        cur_nodes = len(self._workers[self._current_id])
+
+      print(f"Current nodes cur_nodes at {self._current_id} is {cur_nodes}", flush=True)
+      if(cur_nodes == self._params["min_nodes"]):
+        #Start the timer
+        printf("Attempting to start wait thread")
+        self._start_wait_thread()
+        pass
+
+      
+      if(cur_nodes == self._params["max_nodes"]):
+        self._node_event_setup()
+
+    return cur_id
 
 
   def GetWaitingNodes(self, request, context):
@@ -187,14 +235,19 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     # We assume this node is dead
     
     #First verify we are in the list of workers
-    #log.info(f"Getting waiting nodes, {request.address} : {self._workers[self._current_id]}")
+    #log.info(f"Getting waiting nodes, {request.address} : {self._workers[self._working_id]}")
     address = request.address
-    if(address not in self._workers[self._current_id]):
+    if(address not in self._workers[self._working_id]):
+      if(address in self._workers[self._current_id]):
+        #future id, and we can just return
+        log.info(f"Returning passed. {address}: {self._workers[self._current_id]}")
+        return orchestrator_pb2.WaitingNodes(num_waiting_nodes=0, error_msg="") 
+
       #Return an error message if we fail
-      log.info("Returning failed")
-      return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes, error_msg=f"{address} not in current worker {self._workers[self._current_id]}") 
+      log.info(f"Returning failed. {address}: {self._workers[self._working_id]}")
+      return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes, error_msg=f"{address} not in current worker {self._workers[self._working_id]}") 
     
-    self._workers[self._current_id][address] = time.time()
+    self._workers[self._working_id][address] = time.time()
 
     if(self._waiting_nodes > 0):
       return orchestrator_pb2.WaitingNodes(num_waiting_nodes=self._waiting_nodes, error_msg="")
@@ -202,11 +255,12 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
     #If we are already waiting for nodes (being added) we can return
     #now check for Health check failures
 
-    fail = [self._workers[self._current_id][x] + HEALTH_CHECK_TIMEOUT > time.time() for x in self._workers[self._current_id]]
-    num_failed = 0-fail.count(False)
-    #log.info(f"Number of failed {num_failed}, Workers {self._workers[self._current_id]}")
-
-    return orchestrator_pb2.WaitingNodes(num_waiting_nodes=num_failed, error_msg="")  
+    fail = [self._workers[self._working_id][x] + HEALTH_CHECK_TIMEOUT > time.time() for x in self._workers[self._working_id]]
+    if(fail.count(True) > 0):
+      self._failed_lease = True
+    
+    num_waiting = len(self._workers[self._current_id])
+    return orchestrator_pb2.WaitingNodes(num_waiting_nodes=num_waiting, error_msg="")  
 
 
   def Synchronize(self, request, context):
@@ -226,7 +280,7 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       self._data_sync = {}
       self._start_sync = True
     
-    if(request.address not in self._workers[self._current_id]):
+    if(request.address not in self._workers[self._working_id]):
       self._sync_lock.release()
       return ret_val(False, "{}", f"{request.address} not in current list of workers {str(self._workers)}")
 
@@ -235,15 +289,15 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
 
     while (time.time() <= end_time):
       sync_len = len(self._data_sync)
-      if(sync_len == len(self._workers[self._current_id])):
+      if(sync_len == len(self._workers[self._working_id])):
         return ret_val(True, json.dumps(self._data_sync))
-      elif(sync_len > len(self._workers[self._current_id])):
+      elif(sync_len > len(self._workers[self._working_id])):
         self._start_sync = False
-        raise ValueError(f"{sync_len} num workers synchronizing > {len(self._workers[self._current_id])} ")
+        raise ValueError(f"{sync_len} num workers synchronizing > {len(self._workers[self._working_id])} ")
       else:
         time.sleep(1)
         log.warning(f"{sync_len}")
-    if(len(self._data_sync) == len(self._workers[self._current_id])):
+    if(len(self._data_sync) == len(self._workers[self._working_id])):
         return ret_val(True, json.dumps(self._data_sync))
     else:
       self._data_sync.pop(request.address, None)
@@ -266,23 +320,24 @@ class TFEOrchestratorServicer(orchestrator_pb2_grpc.TFEOrchestratorServicer):
       self._data_bar = {}
       self._start_bar = True
     
-    if(request.address not in self._workers[self._current_id]):
+    if(request.address not in self._workers[self._working_id]):
       self._bar_lock.release()
-      return ret_val(False, f"{request.address} not in current list of workers {str(self._workers[self._current_id])}")
+      return ret_val(False, f"{request.address} not in current list of workers {str(self._workers[self._working_id])}")
 
     self._data_bar[request.address]=1
     self._bar_lock.release()
     
     while (time.time() <= end_time):
       bar_len = len(self._data_bar)
-      if(bar_len == len(self._workers[self._current_id])):
+      log.warning(f"{self._workers[self._working_id]} bar_len {bar_len} working_id {self._working_id}")
+      if(bar_len == len(self._workers[self._working_id])):
         return ret_val(True, "")
-      elif(bar_len > len(self._workers[self._current_id])):
+      elif(bar_len > len(self._workers[self._working_id])):
         self._start_bar = False
-        raise ValueError(f"{bar_len} num workers synchronizing > {len(self._workers[self._current_id])} ")
+        raise ValueError(f"{bar_len} num workers synchronizing > {len(self._workers[self._working_id])} ")
       else:
         time.sleep(1)
-    if(len(self._data_bar) == len(self._workers[self._current_id])):
+    if(len(self._data_bar) == len(self._workers[self._working_id])):
         return ret_val(True, "")
     else:
       self._data_bar.pop(request.address, None)

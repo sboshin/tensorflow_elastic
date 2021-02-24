@@ -49,4 +49,10 @@ class TFEOrchestratorHandler():
         stub = orchestrator_pb2_grpc.TFEOrchestratorStub(channel)
         ret = stub.ShutDown(orchestrator_pb2.ShutDownRequest())
     return ret.end_time
+
+  def UniqueIndex(self, address):
+    with grpc.insecure_channel(self.server) as channel:
+        stub = orchestrator_pb2_grpc.TFEOrchestratorStub(channel)
+        ret = stub.UniqueIndex(orchestrator_pb2.UniqueIndexRequest(address=address))
+    return ret.unique_index
     

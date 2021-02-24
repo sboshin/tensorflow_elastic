@@ -2,6 +2,7 @@ import os
 import argparse
 import tensorflow as tf
 import time
+import tensorflow_elastic.tensorflow
 
 from tensorflow.python.distribute.collective_all_reduce_strategy import CollectiveAllReduceStrategy
 
@@ -27,6 +28,7 @@ def main():
     print("TF_CONFIG env is %s "%(tf_config))
     
     strategy = CollectiveAllReduceStrategy()
+    strategy.extended._check_health_interval = 5
     with strategy.scope():
       var = strategy.reduce("SUM", tf.convert_to_tensor(1.), axis=None)
 

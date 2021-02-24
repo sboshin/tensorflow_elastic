@@ -516,7 +516,7 @@ class SimpleElasticAgent(ElasticAgent):
         spec = worker_group.spec
 
         self.cluster_spec = spec.rdzv_handler.GetClusterSpec(spec.address, False)
-        global_rank = self.cluster_spec["cluster"]["worker"].index(spec.address)
+        global_rank = self.cluster_spec["task"]["index"]
         self.cluster_spec["task"]["index"] = global_rank
         worker_group.group_rank = global_rank
         

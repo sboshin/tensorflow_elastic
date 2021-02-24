@@ -111,107 +111,53 @@ class TFEOrchestratorTest(test.TestCase):
     p.join()
 
 
-  # def test_excess_workers(self):
-  #   args = []
+  # def test_synchronize_workers(self):
+
   #   num_workers = 3
-  #   min_nodes = 2
-  #   max_nodes = 3
-  #   for ii in range(max_nodes):
-  #     args.append((f"localhost:{50051+ii}", min_nodes, max_nodes, False))
+  #   tag="test"
+  #   args = []
+  #   setup_args = []
+  #   final = {}
+  #   handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
+  #   for ii in range(num_workers):
+  #     address = f"localhost:{500051+ii}"
+  #     data = json.dumps({ii:address})
+  #     final[address]=json.loads(data)
+  #     args.append((handler, address, tag, data, 10))
+  #     setup_args.append((handler, address, False))
 
   #   pool = Pool(num_workers)
-  #   results = pool.starmap(GetClusterSpec, args)
-    
-  #   assert len(results[0]["cluster"]["worker"]) == max_nodes, results[0]
-  #   time.sleep(10)
-  #   p = Process(target=GetClusterSpec, args=("localhost:50054", min_nodes, max_nodes, False))
-  #   p.start()
-  #   wait_nodes = GetWaitingNodes()
-  #   assert wait_nodes == 0, f"Waiting nodes {wait_nodes} num_workers {num_workers} max_nodes {max_nodes}"
-  #   p.terminate()
-  #   p.join()
+  #   results = pool.starmap(GetClusterSpec, setup_args)
+  #   results = pool.starmap(Synchronize, args)
 
-  def test_reset_workers(self):
-    args = []
-    num_workers = 3
-    min_nodes = 2
-    max_nodes = 3
-    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, min_nodes, max_nodes)
-    for ii in range(min_nodes):
-      args.append((handler, f"localhost:{50051+ii}", False))
+  #   print(results)
+  #   success = [ret[0] for ret in results]
+  #   error_msgs = [(ret[2]=="") for ret in results]
+  #   data = {key: json.loads(results[0][1][key]) for key in results[0][1]}
+  #   assert all(success), success
+  #   assert all(error_msgs), error_msgs
+  #   assert len(results), results
+  #   assert data == final, (data, final)
 
-    pool = Pool(min_nodes)
-    results = pool.starmap(GetClusterSpec, args)
-    
-    assert len(results[0]["cluster"]["worker"]) == min_nodes, results[0]
-    
-    p = Process(target=GetClusterSpec, args=(handler, "localhost:50054", False))
-    p.start()
-    time.sleep(2)
-    wait_nodes = GetWaitingNodes(handler,"localhost:50051")
-    assert wait_nodes == 1, f"Waiting nodes {wait_nodes} num_workers {num_workers} max_nodes {max_nodes}"
+  # def test_fail_synchronize_workers(self):
 
-    pool.close()
-    print("Finished Waiting Nodes",flush=True)
-    args = []
-    for ii in range(min_nodes):
-      args.append((handler, f"localhost:{50051+ii}", True))
+  #   num_workers = 3
+  #   tag="test"
+  #   args = []
+  #   setup_args = []
+  #   handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
+  #   for ii in range(num_workers):
+  #     address = f"localhost:{500051+ii}"
+  #     data = json.dumps({ii:address})
+  #     args.append((handler, address, tag, data, 10, ii*6))
+  #     setup_args.append((handler, address, False))
 
-    pool = Pool(num_workers)
-    results = pool.starmap(GetClusterSpec, args)
-    print(results, flush=True)
-    p.join()
-
-    assert len(results[0]["cluster"]["worker"]) == max_nodes, results[0]
-    
-    
-  def test_synchronize_workers(self):
-
-    num_workers = 3
-    tag="test"
-    args = []
-    setup_args = []
-    final = {}
-    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
-    for ii in range(num_workers):
-      address = f"localhost:{500051+ii}"
-      data = json.dumps({ii:address})
-      final[address]=json.loads(data)
-      args.append((handler, address, tag, data, 10))
-      setup_args.append((handler, address, False))
-
-    pool = Pool(num_workers)
-    results = pool.starmap(GetClusterSpec, setup_args)
-    results = pool.starmap(Synchronize, args)
-
-    print(results)
-    success = [ret[0] for ret in results]
-    error_msgs = [(ret[2]=="") for ret in results]
-    data = {key: json.loads(results[0][1][key]) for key in results[0][1]}
-    assert all(success), success
-    assert all(error_msgs), error_msgs
-    assert len(results), results
-    assert data == final, (data, final)
-
-  def test_fail_synchronize_workers(self):
-
-    num_workers = 3
-    tag="test"
-    args = []
-    setup_args = []
-    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
-    for ii in range(num_workers):
-      address = f"localhost:{500051+ii}"
-      data = json.dumps({ii:address})
-      args.append((handler, address, tag, data, 10, ii*6))
-      setup_args.append((handler, address, False))
-
-    pool = Pool(num_workers)
-    results = pool.starmap(GetClusterSpec, setup_args)
-    try:
-      results = pool.starmap(Synchronize, args)
-    except ValueError as e:
-      assert "Timeout reached" in str(e), str(e)
+  #   pool = Pool(num_workers)
+  #   results = pool.starmap(GetClusterSpec, setup_args)
+  #   try:
+  #     results = pool.starmap(Synchronize, args)
+  #   except ValueError as e:
+  #     assert "Timeout reached" in str(e), str(e)
     
 
     # print(results)
@@ -224,49 +170,49 @@ class TFEOrchestratorTest(test.TestCase):
     # assert data == {}, data
 
 
-  def test_barrier_workers(self):
+  # def test_barrier_workers(self):
 
-    num_workers = 3
-    tag="test"
-    args = []
-    setup_args = []
-    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
-    for ii in range(num_workers):
-      address = f"localhost:{500051+ii}"
-      args.append((handler, address, tag, 10, ii*3))
-      setup_args.append((handler, address, False))
+  #   num_workers = 3
+  #   tag="test"
+  #   args = []
+  #   setup_args = []
+  #   handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
+  #   for ii in range(num_workers):
+  #     address = f"localhost:{500051+ii}"
+  #     args.append((handler, address, tag, 10, ii*3))
+  #     setup_args.append((handler, address, False))
 
-    pool = Pool(num_workers)
-    results = pool.starmap(GetClusterSpec, setup_args)
-    results = pool.starmap(Barrier, args)
+  #   pool = Pool(num_workers)
+  #   results = pool.starmap(GetClusterSpec, setup_args)
+  #   results = pool.starmap(Barrier, args)
 
     
-    print(results)
-    success = [ret[0] for ret in results]
-    error_msgs = [(ret[1]=="") for ret in results]
+  #   print(results)
+  #   success = [ret[0] for ret in results]
+  #   error_msgs = [(ret[1]=="") for ret in results]
     
-    assert all(success), success
-    assert all(error_msgs), error_msgs
-    assert len(results), results
+  #   assert all(success), success
+  #   assert all(error_msgs), error_msgs
+  #   assert len(results), results
     
-  def test_fail_barrier_workers(self):
+  # def test_fail_barrier_workers(self):
 
-    num_workers = 3
-    tag="test"
-    args = []
-    setup_args = []
-    handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
-    for ii in range(num_workers):
-      address = f"localhost:{500051+ii}"
-      args.append((handler, address, tag, 10, ii*6))
-      setup_args.append((handler, address, False))
+  #   num_workers = 3
+  #   tag="test"
+  #   args = []
+  #   setup_args = []
+  #   handler = orch_api.TFEOrchestratorHandler(SERVER_ADDRESS, num_workers, num_workers)
+  #   for ii in range(num_workers):
+  #     address = f"localhost:{500051+ii}"
+  #     args.append((handler, address, tag, 10, ii*6))
+  #     setup_args.append((handler, address, False))
 
-    pool = Pool(num_workers)
-    results = pool.starmap(GetClusterSpec, setup_args)
-    try:
-      results = pool.starmap(Barrier, args)
-    except ValueError as e:
-      assert "Timeout reached" in str(e), str(e)
+  #   pool = Pool(num_workers)
+  #   results = pool.starmap(GetClusterSpec, setup_args)
+  #   try:
+  #     results = pool.starmap(Barrier, args)
+  #   except ValueError as e:
+  #     assert "Timeout reached" in str(e), str(e)
 
     
   # def test_fail_barrier_workers_indefinite(self):

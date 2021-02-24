@@ -7,3 +7,4 @@
 # LICENSE file in the root directory of this source tree.
 
 from .api import get_env_variable_or_raise  # noqa F401
+from .api import get_socket_with_port  # noqa F401

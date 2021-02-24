@@ -2,6 +2,7 @@ import os
 import argparse
 import tensorflow
 import time
+import tensorflow_elastic.tensorflow
 
 from tensorflow.python.distribute.cluster_resolver.tfconfig_cluster_resolver import TFConfigClusterResolver
 

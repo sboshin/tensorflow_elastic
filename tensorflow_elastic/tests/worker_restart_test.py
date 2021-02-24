@@ -40,6 +40,8 @@ from tensorflow_elastic.rendezvous.orchestrator_server import serve
 import tensorflow_elastic.rendezvous.orchestrator_api as rdzv
 import tensorflow_elastic.tensorflow
 from tensorflow.python.distribute import collective_all_reduce_strategy
+import tensorflow_elastic.tensorflow
+
 
 SERVER_ADDRESS = 'localhost:50051'
 
@@ -190,40 +192,6 @@ class ElasticTensorflowWorkerRestart(test.TestCase):
     val = strategy.reduce(tf.distribute.ReduceOp.SUM, var_val, None)
     print(val, flush=True)
 
-  def _run_elastic_tfconfig_test(self, params, sleep=15):
-    import tensorflow as tf
-    
-    handler = rdzv.TFEOrchestratorHandler(SERVER_ADDRESS, params.min_nodes, params.max_nodes)
-    prev_tfconfig = handler.GetClusterSpec(params.address, False)
-    prev_tfconfig["cluster"]["worker"].sort()
-    prev_tfconfig["task"]["index"] = prev_tfconfig["cluster"]["worker"].index(params.address)
-    os.environ["TF_CONFIG"] = json.dumps(prev_tfconfig)
-    prev_tfconfig = os.environ["TF_CONFIG"]
-    print(prev_tfconfig, flush=True)
-    
-    strategy = collective_all_reduce_strategy.CollectiveAllReduceStrategy()
-    tensor_input = tf.constant(1.0)
-
-    def ret_val(t_in):
-      return t_in
-    var_val = strategy.run(ret_val, args=(tensor_input,))
-    val = strategy.reduce(tf.distribute.ReduceOp.SUM, var_val, None)
-    print(val, flush=True)
-    time.sleep(sleep)
-
-    tfconfig = handler.GetClusterSpec(params.address, False)
-    tfconfig["cluster"]["worker"].sort()
-    tfconfig["task"]["index"] = tfconfig["cluster"]["worker"].index(params.address)
-    
-    os.environ["TF_CONFIG"] = json.dumps(tfconfig)
-    assert prev_tfconfig != os.environ["TF_CONFIG"], (prev_tfconfig, os.environ["TF_CONFIG"])
-    print(os.environ["TF_CONFIG"], flush=True)
-    time.sleep(5)
-    strategy.extended.update_cluster()
-    #strategy.configure(tfconfig)
-    val = strategy.reduce(tf.distribute.ReduceOp.SUM, var_val, None)
-    print(val, flush=True)
-
   def test_tfconfig(self):
     w_list = [f"localhost:555{ii}" for ii in range(2)]
     for ii in range(2):
@@ -271,14 +239,6 @@ class ElasticTensorflowWorkerRestart(test.TestCase):
     handler = rdzv.TFEOrchestratorHandler(SERVER_ADDRESS, params.min_nodes, params.max_nodes)
     prev_tfconfig = handler.GetClusterSpec(params.address, False)
     
-    wdict = dict(enumerate(sorted(prev_tfconfig["cluster"]["worker"])))
-    print(wdict)
-    prev_tfconfig["cluster"]["worker"] = wdict
-    key_list = list(wdict.keys()) 
-    val_list = list(wdict.values()) 
-
-    prev_tfconfig["task"]["index"] = key_list[val_list.index(params.address)] #prev_tfconfig["cluster"]["worker"].index(params.address)
-    prev_index = prev_tfconfig["task"]["index"]
     os.environ["TF_CONFIG"] = json.dumps(prev_tfconfig)
     prev_tfconfig = os.environ["TF_CONFIG"]
     print(prev_tfconfig, flush=True)
@@ -295,12 +255,6 @@ class ElasticTensorflowWorkerRestart(test.TestCase):
     time.sleep(sleep)
     
     tfconfig = handler.GetClusterSpec(params.address, False)
-    tfconfig["cluster"]["worker"].sort()
-    keys = [key_list[val_list.index(x)] for x in tfconfig["cluster"]["worker"]]
-    wdict = dict(zip(keys,tfconfig["cluster"]["worker"]))
-    tfconfig["cluster"]["worker"] = wdict
-    tfconfig["task"]["index"] = key_list[val_list.index(params.address)]#prev_index#tfconfig["cluster"]["worker"].index(params.address)
-    
     os.environ["TF_CONFIG"] = json.dumps(tfconfig)
     assert prev_tfconfig != os.environ["TF_CONFIG"], (prev_tfconfig, os.environ["TF_CONFIG"])
     print(os.environ["TF_CONFIG"], flush=True)

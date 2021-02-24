@@ -245,5 +245,27 @@ class ElasticTensorflowTFConfigTest(test.TestCase):
 
     self.join_all()
 
+  def test_resnetctlElastic(self):
+    self._reset_backupdir()
+    start_count = 2
+    nnodes = "2:3"
+    args = ["--epochs=5"]
+    p_args = {"args":args, "nnodes":nnodes, "script":"bin/resnet_mwms_ctl.py"}
+    for ii in range(start_count):
+      params = ElasticParams(**p_args)
+      self._start_node(self._run_in_launch, {"params":params})
+    time.sleep(120+75)
+
+
+    params = ElasticParams(**p_args)
+    self._start_node(self._run_in_launch, {"params":params})
+
+    time.sleep(75*3)
+
+    self._end_node(2)
+
+    self.join_all()
+  
+
 if __name__ == '__main__':
   test.main()
